@@ -1,7 +1,12 @@
 <?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
-        <title>VoiceInk</title>
+        <title>VoiceInk-Pro</title>
+        <!-- 
+            Note: This appcast.xml is from the original VoiceInk project.
+            If you plan to distribute VoiceInk-Pro, you should update this file
+            with your own release information and hosting.
+        -->
         <item>
             <title>1.69</title>
             <pubDate>Sun, 12 Jan 2026 12:00:00 +0545</pubDate>
