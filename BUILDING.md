@@ -1,6 +1,8 @@
-# Building VoiceInk
+# Building VoiceInk-Pro
 
-This guide provides detailed instructions for building VoiceInk from source.
+This guide provides detailed instructions for building VoiceInk-Pro from source.
+
+> **Note:** This is a custom fork of [VoiceInk](https://github.com/Beingpax/VoiceInk). The build process is the same as the original project.
 
 ## Prerequisites
 
@@ -18,8 +20,8 @@ The easiest way to build VoiceInk is using the included Makefile, which automate
 
 ```bash
 # Clone the repository
-git clone https://github.com/Beingpax/VoiceInk.git
-cd VoiceInk
+git clone https://github.com/chabelbossa/VoiceInk-Pro.git
+cd VoiceInk-Pro
 
 # Build everything (recommended for first-time setup)
 make all
@@ -69,10 +71,10 @@ This will create the XCFramework at `build-apple/whisper.xcframework`.
 
 ### Building VoiceInk
 
-1. Clone the VoiceInk repository:
+1. Clone the VoiceInk-Pro repository:
 ```bash
-git clone https://github.com/Beingpax/VoiceInk.git
-cd VoiceInk
+git clone https://github.com/chabelbossa/VoiceInk-Pro.git
+cd VoiceInk-Pro
 ```
 
 2. Add the whisper.xcframework to your project:
@@ -111,4 +113,4 @@ If you encounter any build issues:
 4. Verify all dependencies are properly installed
 5. Make sure whisper.xcframework is properly built and linked
 
-For more help, please check the [issues](https://github.com/Beingpax/VoiceInk/issues) section or create a new issue. 
+For more help, please check the [issues](https://github.com/chabelbossa/VoiceInk-Pro/issues) section or create a new issue. 
