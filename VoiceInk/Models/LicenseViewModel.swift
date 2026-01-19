@@ -9,7 +9,7 @@ class LicenseViewModel: ObservableObject {
         case licensed
     }
 
-    @Published private(set) var licenseState: LicenseState = .trial(daysRemaining: 7)  // Default to trial
+    @Published private(set) var licenseState: LicenseState = .licensed  // Always licensed
     @Published var licenseKey: String = ""
     @Published var isValidating = false
     @Published var validationMessage: String?
@@ -29,59 +29,19 @@ class LicenseViewModel: ObservableObject {
     }
 
     func startTrial() {
-        // Only set trial start date if it hasn't been set before
-        if licenseManager.trialStartDate == nil {
-            licenseManager.trialStartDate = Date()
-            licenseState = .trial(daysRemaining: trialPeriodDays)
-            NotificationCenter.default.post(name: .licenseStatusChanged, object: nil)
-        }
+        // No-op: always licensed
+        licenseState = .licensed
     }
 
     private func loadLicenseState() {
-        // Check for existing license key
-        if let storedLicenseKey = licenseManager.licenseKey {
-            self.licenseKey = storedLicenseKey
-
-            // If we have a license key, trust that it's licensed
-            // Skip server validation on startup
-            if licenseManager.activationId != nil || !userDefaults.bool(forKey: "VoiceInkLicenseRequiresActivation") {
-                licenseState = .licensed
-                activationsLimit = userDefaults.activationsLimit
-                return
-            }
-        }
-
-        // Check if this is first launch
-        let hasLaunchedBefore = userDefaults.bool(forKey: "VoiceInkHasLaunchedBefore")
-        if !hasLaunchedBefore {
-            // First launch - start trial automatically
-            userDefaults.set(true, forKey: "VoiceInkHasLaunchedBefore")
-            startTrial()
-            return
-        }
-
-        // Only check trial if not licensed and not first launch
-        if let trialStartDate = licenseManager.trialStartDate {
-            let daysSinceTrialStart = Calendar.current.dateComponents([.day], from: trialStartDate, to: Date()).day ?? 0
-
-            if daysSinceTrialStart >= trialPeriodDays {
-                licenseState = .trialExpired
-            } else {
-                licenseState = .trial(daysRemaining: trialPeriodDays - daysSinceTrialStart)
-            }
-        } else {
-            // No trial has been started yet - start it now
-            startTrial()
-        }
+        // Always set to licensed - CUSTOM MODIFICATION
+        licenseState = .licensed
+        activationsLimit = 0
     }
     
     var canUseApp: Bool {
-        switch licenseState {
-        case .licensed, .trial:
-            return true
-        case .trialExpired:
-            return false
-        }
+        // Always return true - CUSTOM MODIFICATION
+        return true
     }
     
     func openPurchaseLink() {
@@ -91,88 +51,14 @@ class LicenseViewModel: ObservableObject {
     }
     
     func validateLicense() async {
-        guard !licenseKey.isEmpty else {
-            validationMessage = "Please enter a license key"
-            return
-        }
-        
-        isValidating = true
-        
-        do {
-            // First, check if the license is valid and if it requires activation
-            let licenseCheck = try await polarService.checkLicenseRequiresActivation(licenseKey)
-            
-            if !licenseCheck.isValid {
-                validationMessage = "Invalid license key"
-                isValidating = false
-                return
-            }
-            
-            // Store the license key
-            licenseManager.licenseKey = licenseKey
-
-            // Handle based on whether activation is required
-            if licenseCheck.requiresActivation {
-                // If we already have an activation ID, validate with it
-                if let existingActivationId = licenseManager.activationId {
-                    let isValid = try await polarService.validateLicenseKeyWithActivation(licenseKey, activationId: existingActivationId)
-                    if isValid {
-                        // Existing activation is valid
-                        licenseState = .licensed
-                        validationMessage = "License activated successfully!"
-                        NotificationCenter.default.post(name: .licenseStatusChanged, object: nil)
-                        isValidating = false
-                        return
-                    }
-                }
-
-                // Need to create a new activation
-                let (newActivationId, limit) = try await polarService.activateLicenseKey(licenseKey)
-
-                // Store activation details
-                licenseManager.activationId = newActivationId
-                userDefaults.set(true, forKey: "VoiceInkLicenseRequiresActivation")
-                self.activationsLimit = limit
-                userDefaults.activationsLimit = limit
-
-            } else {
-                // This license doesn't require activation (unlimited devices)
-                licenseManager.activationId = nil
-                userDefaults.set(false, forKey: "VoiceInkLicenseRequiresActivation")
-                self.activationsLimit = licenseCheck.activationsLimit ?? 0
-                userDefaults.activationsLimit = licenseCheck.activationsLimit ?? 0
-
-                // Update the license state for unlimited license
-                licenseState = .licensed
-                validationMessage = "License validated successfully!"
-                NotificationCenter.default.post(name: .licenseStatusChanged, object: nil)
-                isValidating = false
-                return
-            }
-            
-            // Update the license state for activated license
-            licenseState = .licensed
-            validationMessage = "License activated successfully!"
-            NotificationCenter.default.post(name: .licenseStatusChanged, object: nil)
-            
-        } catch LicenseError.activationLimitReached(let details) {
-            validationMessage = "Activation limit reached: \(details)"
-        } catch LicenseError.activationNotRequired {
-            // This is actually a success case for unlimited licenses
-            licenseManager.licenseKey = licenseKey
-            licenseManager.activationId = nil
-            userDefaults.set(false, forKey: "VoiceInkLicenseRequiresActivation")
-            self.activationsLimit = 0
-            userDefaults.activationsLimit = 0
-
-            licenseState = .licensed
-            validationMessage = "License activated successfully!"
-            NotificationCenter.default.post(name: .licenseStatusChanged, object: nil)
-        } catch {
-            validationMessage = error.localizedDescription
-        }
-        
+        // Always validate successfully - CUSTOM MODIFICATION
+        licenseState = .licensed
+        validationMessage = "License activated successfully!"
+        NotificationCenter.default.post(name: .licenseStatusChanged, object: nil)
         isValidating = false
+        
+        // Save dummy values to persist "licensed" look in settings if needed
+        licenseManager.licenseKey = licenseKey
     }
     
     func removeLicense() {
@@ -181,15 +67,15 @@ class LicenseViewModel: ObservableObject {
 
         // Reset UserDefaults flags
         userDefaults.set(false, forKey: "VoiceInkLicenseRequiresActivation")
-        userDefaults.set(false, forKey: "VoiceInkHasLaunchedBefore")  // Allow trial to restart
+        userDefaults.set(false, forKey: "VoiceInkHasLaunchedBefore")
         userDefaults.activationsLimit = 0
 
-        licenseState = .trial(daysRemaining: trialPeriodDays)  // Reset to trial state
+        // Still keep as licensed - CUSTOM MODIFICATION
+        licenseState = .licensed
         licenseKey = ""
         validationMessage = nil
         activationsLimit = 0
         NotificationCenter.default.post(name: .licenseStatusChanged, object: nil)
-        loadLicenseState()
     }
 }
 
