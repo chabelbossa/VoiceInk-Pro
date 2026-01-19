@@ -6,23 +6,22 @@
             Note: This appcast.xml is from the original VoiceInk project.
             If you plan to distribute VoiceInk-Pro, you should update this file
             with your own release information and hosting.
+            
+            Example item structure (update with your actual releases):
+            <item>
+                <title>1.0.0</title>
+                <pubDate>Sun, 19 Jan 2026 12:00:00 +0000</pubDate>
+                <sparkle:version>100</sparkle:version>
+                <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+                <description><![CDATA[
+                    <h3>What's New in Version 1.0.0</h3>
+                    <ul>
+                        <li>Initial VoiceInk-Pro release</li>
+                    </ul>
+                ]]></description>
+                <enclosure url="https://github.com/chabelbossa/VoiceInk-Pro/releases/download/v1.0.0/VoiceInk-Pro.dmg" length="10000000" type="application/octet-stream" sparkle:edSignature="YOUR_SIGNATURE_HERE"/>
+            </item>
         -->
-        <item>
-            <title>1.69</title>
-            <pubDate>Sun, 12 Jan 2026 12:00:00 +0545</pubDate>
-            <sparkle:version>169</sparkle:version>
-            <sparkle:shortVersionString>1.69</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[
-
-                <h3>What's New in Version 1.69</h3>
-                <ul>
-                    <li>Fix recording Issue</li>
-                    <li>Added export logs option in settings</li>
-                </ul>
-
-            ]]></description>
-            <enclosure url="https://github.com/Beingpax/VoiceInk/releases/download/v1.69/VoiceInk.dmg" length="10786047" type="application/octet-stream" sparkle:edSignature="tPVfTDY+CKBMxW5EW+KsbhsH5YiVDyY9VFplI71EiDu56GZu0fWxd/p/V2WRdPHX+8FKfVpmSJwhzVgCHL7FBg=="/>
-        </item>
     </channel>
 </rss>
