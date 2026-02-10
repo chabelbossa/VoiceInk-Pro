@@ -352,13 +352,34 @@ class AIEnhancementService: ObservableObject {
     private func makeRequestWithRetry(text: String, mode: EnhancementPrompt, maxRetries: Int = 3, initialDelay: TimeInterval = 1.0) async throws -> String {
         var retries = 0
         var currentDelay = initialDelay
+        let provider = aiService.selectedProvider.rawValue
+        let multiKeyManager = MultiKeyManager.shared
+        let hasMultipleKeys = multiKeyManager.hasMultipleKeys(forProvider: provider)
 
         while retries < maxRetries {
             do {
                 return try await makeRequest(text: text, mode: mode)
             } catch let error as EnhancementError {
                 switch error {
-                case .networkError, .serverError, .rateLimitExceeded:
+                case .rateLimitExceeded:
+                    // Multi-key failover: mark current key as failed for future rotation
+                    if hasMultipleKeys {
+                        let currentKey = aiService.apiKey
+                        multiKeyManager.markKeyAsFailed(currentKey, forProvider: provider)
+                        logger.warning("Rate limit hit, key marked as failed. (Attempt \(retries + 1)/\(maxRetries))")
+                    }
+                    
+                    retries += 1
+                    if retries < maxRetries {
+                        logger.warning("Rate limit hit, retrying in \(currentDelay)s... (Attempt \(retries)/\(maxRetries))")
+                        try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
+                        currentDelay *= 2 // Exponential backoff
+                        continue
+                    }
+                    logger.error("Request failed after \(maxRetries) retries.")
+                    throw error
+                    
+                case .networkError, .serverError:
                     retries += 1
                     if retries < maxRetries {
                         logger.warning("Request failed, retrying in \(currentDelay)s... (Attempt \(retries)/\(maxRetries))")

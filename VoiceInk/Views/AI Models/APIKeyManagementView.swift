@@ -202,6 +202,10 @@ struct APIKeyManagementView: View {
                             Spacer()
                             Text("••••••••")
                                 .foregroundColor(.secondary)
+                            
+                            // Multi-Key Load Balancing Button
+                            MultiKeyButton(provider: aiService.selectedProvider.rawValue)
+                            
                             Button("Remove", role: .destructive) {
                                 aiService.clearAPIKey()
                             }
