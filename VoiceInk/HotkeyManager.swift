@@ -2,6 +2,7 @@ import Foundation
 import KeyboardShortcuts
 import Carbon
 import AppKit
+import os
 
 extension KeyboardShortcuts.Name {
     static let toggleMiniRecorder = Self("toggleMiniRecorder")
@@ -41,6 +42,7 @@ class HotkeyManager: ObservableObject {
         }
     }
     
+    private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "HotkeyManager")
     private var whisperState: WhisperState
     private var miniRecorderShortcutManager: MiniRecorderShortcutManager
     private var powerModeShortcutManager: PowerModeShortcutManager
@@ -124,8 +126,7 @@ class HotkeyManager: ObservableObject {
         self.selectedHotkey2 = HotkeyOption(rawValue: UserDefaults.standard.string(forKey: "selectedHotkey2") ?? "") ?? .none
         
         self.isMiddleClickToggleEnabled = UserDefaults.standard.bool(forKey: "isMiddleClickToggleEnabled")
-        let storedDelay = UserDefaults.standard.integer(forKey: "middleClickActivationDelay")
-        self.middleClickActivationDelay = storedDelay > 0 ? storedDelay : 200
+        self.middleClickActivationDelay = UserDefaults.standard.integer(forKey: "middleClickActivationDelay")
         
         self.whisperState = whisperState
         self.miniRecorderShortcutManager = MiniRecorderShortcutManager(whisperState: whisperState)
@@ -340,12 +341,14 @@ class HotkeyManager: ObservableObject {
             if isHandsFreeMode {
                 isHandsFreeMode = false
                 guard canProcessHotkeyAction else { return }
+                logger.notice("processKeyPress: toggling mini recorder (hands-free toggle)")
                 await whisperState.handleToggleMiniRecorder()
                 return
             }
 
             if !whisperState.isMiniRecorderVisible {
                 guard canProcessHotkeyAction else { return }
+                logger.notice("processKeyPress: toggling mini recorder (key down while not visible)")
                 await whisperState.handleToggleMiniRecorder()
             }
         } else {
@@ -356,6 +359,7 @@ class HotkeyManager: ObservableObject {
                     isHandsFreeMode = true
                 } else {
                     guard canProcessHotkeyAction else { return }
+                    logger.notice("processKeyPress: toggling mini recorder (key up long press)")
                     await whisperState.handleToggleMiniRecorder()
                 }
             }
@@ -378,12 +382,14 @@ class HotkeyManager: ObservableObject {
         if isShortcutHandsFreeMode {
             isShortcutHandsFreeMode = false
             guard canProcessHotkeyAction else { return }
+            logger.notice("handleCustomShortcutKeyDown: toggling mini recorder (hands-free toggle)")
             await whisperState.handleToggleMiniRecorder()
             return
         }
 
         if !whisperState.isMiniRecorderVisible {
             guard canProcessHotkeyAction else { return }
+            logger.notice("handleCustomShortcutKeyDown: toggling mini recorder (key down while not visible)")
             await whisperState.handleToggleMiniRecorder()
         }
     }
@@ -399,6 +405,7 @@ class HotkeyManager: ObservableObject {
                 isShortcutHandsFreeMode = true
             } else {
                 guard canProcessHotkeyAction else { return }
+                logger.notice("handleCustomShortcutKeyUp: toggling mini recorder (key up long press)")
                 await whisperState.handleToggleMiniRecorder()
             }
         }
