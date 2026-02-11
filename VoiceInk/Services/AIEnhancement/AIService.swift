@@ -155,6 +155,10 @@ enum AIProvider: String, CaseIterable {
 class AIService: ObservableObject {
     @Published var apiKey: String = ""
     @Published var isAPIKeyValid: Bool = false
+    
+    /// Indicates whether any multi-key exists for the current provider.
+    /// This is checked synchronously at startup and on provider change.
+    @Published var hasAnyMultiKey: Bool = false
     @Published var customBaseURL: String = UserDefaults.standard.string(forKey: "customProviderBaseURL") ?? "" {
         didSet {
             userDefaults.set(customBaseURL, forKey: "customProviderBaseURL")
@@ -176,9 +180,12 @@ class AIService: ObservableObject {
                     self.apiKey = ""
                     self.isAPIKeyValid = false
                 }
+                // Check multi-keys: if any multi-key exists, mark as valid even without primary
+                refreshMultiKeyStatus()
             } else {
                 self.apiKey = ""
                 self.isAPIKeyValid = true
+                self.hasAnyMultiKey = false
                 if selectedProvider == .ollama {
                     Task {
                         await ollamaService.checkConnection()
@@ -201,6 +208,7 @@ class AIService: ObservableObject {
             if provider == .ollama {
                 return ollamaService.isConnected
             } else if provider.requiresAPIKey {
+                // Consider connected if either primary key or any multi-key exists
                 return APIKeyManager.shared.hasAPIKey(forProvider: provider.rawValue)
             }
             return false
@@ -243,12 +251,33 @@ class AIService: ObservableObject {
                 self.apiKey = savedKey
                 self.isAPIKeyValid = true
             }
+            // Check for multi-keys at startup: even without a primary key, 
+            // multi-keys should make the provider valid
+            refreshMultiKeyStatus()
         } else {
             self.isAPIKeyValid = true
         }
 
         loadSavedModelSelections()
         loadSavedOpenRouterModels()
+    }
+    
+    /// Refreshes the multi-key status for the current provider.
+    /// If multi-keys exist, marks the provider as valid even without a primary key.
+    func refreshMultiKeyStatus() {
+        guard selectedProvider.requiresAPIKey else {
+            hasAnyMultiKey = false
+            return
+        }
+        
+        Task { @MainActor in
+            let hasKeys = await MultiKeyManager.shared.hasAnyKey(forProvider: selectedProvider.rawValue)
+            self.hasAnyMultiKey = hasKeys
+            // If we have any key (primary or multi), mark as valid
+            if hasKeys && !self.isAPIKeyValid {
+                self.isAPIKeyValid = true
+            }
+        }
     }
     
     private func loadSavedModelSelections() {

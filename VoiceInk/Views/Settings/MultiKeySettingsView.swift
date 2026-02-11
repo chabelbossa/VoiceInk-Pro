@@ -10,8 +10,6 @@ struct MultiKeySettingsView: View {
     @State private var showDeleteConfirmation = false
     @Environment(\.dismiss) private var dismiss
     
-    private let multiKeyManager = MultiKeyManager.shared
-    
     var body: some View {
         VStack(spacing: 16) {
             // Header
@@ -39,10 +37,10 @@ struct MultiKeySettingsView: View {
                     Image(systemName: "key.horizontal.fill")
                         .font(.system(size: 40))
                         .foregroundColor(.secondary.opacity(0.5))
-                    Text("No additional API keys")
+                    Text("No API keys configured")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                    Text("The primary key from settings will be used.\nAdd more keys to enable automatic failover.")
+                    Text("Add API keys to enable automatic round-robin\nrotation and rate limit avoidance.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -134,7 +132,7 @@ struct MultiKeySettingsView: View {
                     .font(.caption)
                     .fontWeight(.medium)
                 
-                Text("• Keys are used in round-robin order\n• If a request fails (rate limit), the next key is tried\n• Failed keys are retried after 60 seconds")
+                Text("Keys rotate automatically with each request (round-robin).\nIf a key hits its rate limit, it is skipped for 60 seconds.\nAll keys are stored securely in the macOS Keychain.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -161,16 +159,27 @@ struct MultiKeySettingsView: View {
     }
     
     private func loadKeys() {
-        keys = multiKeyManager.getAllKeys(forProvider: provider)
+        Task {
+            let loadedKeys = await MultiKeyManager.shared.getAllKeys(forProvider: provider)
+            await MainActor.run {
+                keys = loadedKeys
+            }
+        }
     }
     
     private func addKey() {
         guard !newKey.isEmpty else { return }
+        let keyToAdd = newKey
         
-        if multiKeyManager.addKey(newKey, forProvider: provider) {
-            newKey = ""
-            showAddKeyField = false
-            loadKeys()
+        Task {
+            let success = await MultiKeyManager.shared.addKey(keyToAdd, forProvider: provider)
+            await MainActor.run {
+                if success {
+                    newKey = ""
+                    showAddKeyField = false
+                }
+                loadKeys()
+            }
         }
     }
     
@@ -178,16 +187,20 @@ struct MultiKeySettingsView: View {
         // Don't remove the primary key (index 0)
         guard index > 0 else { return }
         
-        // For additional keys, index in storage is index - 1
-        _ = multiKeyManager.removeKey(at: index - 1, forProvider: provider)
-        loadKeys()
+        Task {
+            // For additional keys, index in storage is index - 1
+            _ = await MultiKeyManager.shared.removeKey(at: index - 1, forProvider: provider)
+            await MainActor.run {
+                loadKeys()
+            }
+        }
     }
     
     private func maskedKey(_ key: String) -> String {
-        guard key.count > 8 else { return "••••••••" }
+        guard key.count > 8 else { return String(repeating: "\u{2022}", count: 8) }
         let prefix = String(key.prefix(4))
         let suffix = String(key.suffix(4))
-        return "\(prefix)••••\(suffix)"
+        return "\(prefix)\u{2022}\u{2022}\u{2022}\u{2022}\(suffix)"
     }
 }
 
@@ -195,10 +208,7 @@ struct MultiKeySettingsView: View {
 struct MultiKeyButton: View {
     let provider: String
     @State private var showSheet = false
-    
-    private var keyCount: Int {
-        MultiKeyManager.shared.keyCount(forProvider: provider)
-    }
+    @State private var keyCount: Int = 0
     
     var body: some View {
         Button(action: { showSheet = true }) {
@@ -214,8 +224,23 @@ struct MultiKeyButton: View {
             }
         }
         .buttonStyle(.bordered)
+        .onAppear {
+            refreshKeyCount()
+        }
         .sheet(isPresented: $showSheet) {
             MultiKeySettingsView(provider: provider)
+                .onDisappear {
+                    refreshKeyCount()
+                }
+        }
+    }
+    
+    private func refreshKeyCount() {
+        Task {
+            let count = await MultiKeyManager.shared.keyCount(forProvider: provider)
+            await MainActor.run {
+                keyCount = count
+            }
         }
     }
 }

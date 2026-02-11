@@ -4,15 +4,11 @@ import os
 class GeminiTranscriptionService {
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "GeminiService")
     
+    /// Maximum number of retry attempts when rate limited with multiple keys
+    private let maxRetries = 3
+    
     func transcribe(audioURL: URL, model: any TranscriptionModel) async throws -> String {
-        let config = try getAPIConfig(for: model)
-        
         logger.notice("Starting Gemini transcription with model: \(model.name, privacy: .public)")
-        
-        var request = URLRequest(url: config.url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(config.apiKey, forHTTPHeaderField: "x-goog-api-key")
         
         guard let audioData = try? Data(contentsOf: audioURL) else {
             throw CloudTranscriptionError.audioFileNotFound
@@ -22,76 +18,111 @@ class GeminiTranscriptionService {
         
         let base64AudioData = audioData.base64EncodedString()
         
-        let requestBody = GeminiRequest(
-            contents: [
-                GeminiContent(
-                    parts: [
-                        .text(GeminiTextPart(text: "Please transcribe this audio file. Provide only the transcribed text.")),
-                        .audio(GeminiAudioPart(
-                            inlineData: GeminiInlineData(
-                                mimeType: "audio/wav",
-                                data: base64AudioData
-                            )
-                        ))
-                    ]
-                )
-            ]
-        )
+        // Try with multi-key rotation and retry on rate limit
+        let multiKeyManager = MultiKeyManager.shared
+        let totalKeys = await multiKeyManager.keyCount(forProvider: "Gemini")
+        let maxAttempts = max(totalKeys, 1) * maxRetries
         
-        do {
-            let jsonData = try JSONEncoder().encode(requestBody)
-            request.httpBody = jsonData
-            logger.notice("Request body encoded, sending to Gemini API")
-        } catch {
-            logger.error("Failed to encode Gemini request: \(error.localizedDescription)")
-            throw CloudTranscriptionError.dataEncodingError
-        }
+        var attempts = 0
+        var currentDelay: TimeInterval = 1.0
         
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw CloudTranscriptionError.networkError(URLError(.badServerResponse))
-        }
-        
-        if !(200...299).contains(httpResponse.statusCode) {
-            let errorMessage = String(data: data, encoding: .utf8) ?? "No error message"
-            logger.error("Gemini API request failed with status \(httpResponse.statusCode): \(errorMessage, privacy: .public)")
-            throw CloudTranscriptionError.apiRequestFailed(statusCode: httpResponse.statusCode, message: errorMessage)
-        }
-        
-        do {
-            let transcriptionResponse = try JSONDecoder().decode(GeminiResponse.self, from: data)
-            guard let candidate = transcriptionResponse.candidates.first,
-                  let part = candidate.content.parts.first,
-                  !part.text.isEmpty else {
-                logger.error("No transcript found in Gemini response")
+        while attempts < maxAttempts {
+            // Get the next API key via round-robin
+            guard let apiKey = await multiKeyManager.getNextKey(forProvider: "Gemini") else {
+                throw CloudTranscriptionError.missingAPIKey
+            }
+            
+            let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(model.name):generateContent"
+            guard let apiURL = URL(string: urlString) else {
+                throw CloudTranscriptionError.dataEncodingError
+            }
+            
+            var request = URLRequest(url: apiURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
+            
+            let requestBody = GeminiRequest(
+                contents: [
+                    GeminiContent(
+                        parts: [
+                            .text(GeminiTextPart(text: "Please transcribe this audio file. Provide only the transcribed text.")),
+                            .audio(GeminiAudioPart(
+                                inlineData: GeminiInlineData(
+                                    mimeType: "audio/wav",
+                                    data: base64AudioData
+                                )
+                            ))
+                        ]
+                    )
+                ]
+            )
+            
+            do {
+                let jsonData = try JSONEncoder().encode(requestBody)
+                request.httpBody = jsonData
+                logger.notice("Request body encoded, sending to Gemini API (attempt \(attempts + 1)/\(maxAttempts))")
+            } catch {
+                logger.error("Failed to encode Gemini request: \(error.localizedDescription)")
+                throw CloudTranscriptionError.dataEncodingError
+            }
+            
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw CloudTranscriptionError.networkError(URLError(.badServerResponse))
+            }
+            
+            // Handle rate limit: mark key as failed and try next one
+            if httpResponse.statusCode == 429 {
+                await multiKeyManager.markKeyAsFailed(apiKey, forProvider: "Gemini")
+                attempts += 1
+                
+                if attempts < maxAttempts {
+                    // Apply backoff after full key rotation
+                    if totalKeys > 1 && attempts % totalKeys == 0 {
+                        logger.warning("All Gemini keys rate-limited, backing off \(currentDelay)s...")
+                        try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
+                        currentDelay *= 2
+                    } else if totalKeys <= 1 {
+                        logger.warning("Gemini rate limited, retrying in \(currentDelay)s...")
+                        try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
+                        currentDelay *= 2
+                    } else {
+                        logger.warning("Gemini key rate-limited, trying next key...")
+                    }
+                    continue
+                } else {
+                    let errorMessage = String(data: data, encoding: .utf8) ?? "Rate limit exceeded"
+                    throw CloudTranscriptionError.apiRequestFailed(statusCode: 429, message: errorMessage)
+                }
+            }
+            
+            if !(200...299).contains(httpResponse.statusCode) {
+                let errorMessage = String(data: data, encoding: .utf8) ?? "No error message"
+                logger.error("Gemini API request failed with status \(httpResponse.statusCode): \(errorMessage, privacy: .public)")
+                throw CloudTranscriptionError.apiRequestFailed(statusCode: httpResponse.statusCode, message: errorMessage)
+            }
+            
+            do {
+                let transcriptionResponse = try JSONDecoder().decode(GeminiResponse.self, from: data)
+                guard let candidate = transcriptionResponse.candidates.first,
+                      let part = candidate.content.parts.first,
+                      !part.text.isEmpty else {
+                    logger.error("No transcript found in Gemini response")
+                    throw CloudTranscriptionError.noTranscriptionReturned
+                }
+                logger.notice("Gemini transcription successful, text length: \(part.text.count)")
+                return part.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                logger.error("Failed to decode Gemini API response: \(error.localizedDescription)")
                 throw CloudTranscriptionError.noTranscriptionReturned
             }
-            logger.notice("Gemini transcription successful, text length: \(part.text.count)")
-            return part.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
-            logger.error("Failed to decode Gemini API response: \(error.localizedDescription)")
-            throw CloudTranscriptionError.noTranscriptionReturned
         }
+        
+        throw CloudTranscriptionError.apiRequestFailed(statusCode: 429, message: "All API keys exhausted after \(maxAttempts) attempts")
     }
     
-    private func getAPIConfig(for model: any TranscriptionModel) throws -> APIConfig {
-        guard let apiKey = APIKeyManager.shared.getAPIKey(forProvider: "Gemini"), !apiKey.isEmpty else {
-            throw CloudTranscriptionError.missingAPIKey
-        }
-
-        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(model.name):generateContent"
-        guard let apiURL = URL(string: urlString) else {
-            throw CloudTranscriptionError.dataEncodingError
-        }
-
-        return APIConfig(url: apiURL, apiKey: apiKey, modelName: model.name)
-    }
-    
-    private struct APIConfig {
-        let url: URL
-        let apiKey: String
-        let modelName: String
-    }
+    // MARK: - Request/Response Models
     
     private struct GeminiRequest: Codable {
         let contents: [GeminiContent]

@@ -115,7 +115,9 @@ class AIEnhancementService: ObservableObject {
     @objc private func handleAPIKeyChange() {
         DispatchQueue.main.async {
             self.objectWillChange.send()
-            if !self.aiService.isAPIKeyValid {
+            // Refresh multi-key status before checking
+            self.aiService.refreshMultiKeyStatus()
+            if !self.aiService.isAPIKeyValid && !self.aiService.hasAnyMultiKey {
                 self.isEnhancementEnabled = false
             }
         }
@@ -126,7 +128,7 @@ class AIEnhancementService: ObservableObject {
     }
 
     var isConfigured: Bool {
-        aiService.isAPIKeyValid
+        aiService.isAPIKeyValid || aiService.hasAnyMultiKey
     }
 
     private func waitForRateLimit() async throws {
@@ -198,13 +200,43 @@ class AIEnhancementService: ObservableObject {
         }
     }
 
-    private func makeRequest(text: String, mode: EnhancementPrompt) async throws -> String {
+    /// Resolves the API key to use for the current request.
+    /// Uses MultiKeyManager round-robin for providers with multiple keys,
+    /// falls back to AIService's primary key otherwise.
+    private func resolveAPIKey() async -> String? {
+        let provider = aiService.selectedProvider.rawValue
+        
+        // Try multi-key rotation first
+        if let key = await MultiKeyManager.shared.getNextKey(forProvider: provider) {
+            return key
+        }
+        
+        // Fallback to primary key
+        if !aiService.apiKey.isEmpty {
+            return aiService.apiKey
+        }
+        
+        return nil
+    }
+    
+    private func makeRequest(text: String, mode: EnhancementPrompt, apiKeyOverride: String? = nil) async throws -> String {
         guard isConfigured else {
             throw EnhancementError.notConfigured
         }
 
         guard !text.isEmpty else {
             return "" // Silently return empty string instead of throwing error
+        }
+        
+        // Resolve the API key: use override if provided, otherwise rotate
+        let currentAPIKey: String
+        if let override = apiKeyOverride {
+            currentAPIKey = override
+        } else {
+            guard let resolvedKey = await resolveAPIKey() else {
+                throw EnhancementError.notConfigured
+            }
+            currentAPIKey = resolvedKey
         }
 
         let formattedText = "\n<TRANSCRIPT>\n\(text)\n</TRANSCRIPT>"
@@ -246,7 +278,7 @@ class AIEnhancementService: ObservableObject {
             var request = URLRequest(url: URL(string: aiService.selectedProvider.baseURL)!)
             request.httpMethod = "POST"
             request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.addValue(aiService.apiKey, forHTTPHeaderField: "x-api-key")
+            request.addValue(currentAPIKey, forHTTPHeaderField: "x-api-key")
             request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
             request.timeoutInterval = baseTimeout
             request.httpBody = try? JSONSerialization.data(withJSONObject: requestBody)
@@ -290,7 +322,7 @@ class AIEnhancementService: ObservableObject {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.addValue("Bearer \(aiService.apiKey)", forHTTPHeaderField: "Authorization")
+            request.addValue("Bearer \(currentAPIKey)", forHTTPHeaderField: "Authorization")
             request.timeoutInterval = baseTimeout
 
             let messages: [[String: Any]] = [
@@ -350,69 +382,95 @@ class AIEnhancementService: ObservableObject {
     }
 
     private func makeRequestWithRetry(text: String, mode: EnhancementPrompt, maxRetries: Int = 3, initialDelay: TimeInterval = 1.0) async throws -> String {
-        var retries = 0
-        var currentDelay = initialDelay
         let provider = aiService.selectedProvider.rawValue
         let multiKeyManager = MultiKeyManager.shared
-        let hasMultipleKeys = multiKeyManager.hasMultipleKeys(forProvider: provider)
+        let hasMultipleKeys = await multiKeyManager.hasMultipleKeys(forProvider: provider)
+        
+        // For multi-key: try each key before applying backoff
+        // Total attempts = number of keys * maxRetries (with backoff between full rotations)
+        let totalKeys = hasMultipleKeys ? await multiKeyManager.keyCount(forProvider: provider) : 1
+        let maxAttempts = totalKeys * maxRetries
+        
+        var attempts = 0
+        var currentDelay = initialDelay
+        var lastUsedKey: String?
 
-        while retries < maxRetries {
+        while attempts < maxAttempts {
+            // Get the next key to use via round-robin
+            let currentKey: String
+            if hasMultipleKeys {
+                guard let nextKey = await multiKeyManager.getNextKey(forProvider: provider) else {
+                    throw EnhancementError.notConfigured
+                }
+                currentKey = nextKey
+            } else {
+                guard let resolvedKey = await resolveAPIKey() else {
+                    throw EnhancementError.notConfigured
+                }
+                currentKey = resolvedKey
+            }
+            
             do {
-                return try await makeRequest(text: text, mode: mode)
+                return try await makeRequest(text: text, mode: mode, apiKeyOverride: currentKey)
             } catch let error as EnhancementError {
                 switch error {
                 case .rateLimitExceeded:
-                    // Multi-key failover: mark current key as failed for future rotation
+                    // Mark this key as failed so round-robin skips it
                     if hasMultipleKeys {
-                        let currentKey = aiService.apiKey
-                        multiKeyManager.markKeyAsFailed(currentKey, forProvider: provider)
-                        logger.warning("Rate limit hit, key marked as failed. (Attempt \(retries + 1)/\(maxRetries))")
+                        await multiKeyManager.markKeyAsFailed(currentKey, forProvider: provider)
+                        logger.warning("Rate limit on key, marked as failed. Trying next key... (Attempt \(attempts + 1)/\(maxAttempts))")
                     }
                     
-                    retries += 1
-                    if retries < maxRetries {
-                        logger.warning("Rate limit hit, retrying in \(currentDelay)s... (Attempt \(retries)/\(maxRetries))")
+                    attempts += 1
+                    
+                    // If we've rotated through all keys, apply backoff before next rotation
+                    if attempts % totalKeys == 0 && attempts < maxAttempts {
+                        logger.warning("All keys exhausted in this rotation, backing off \(currentDelay)s...")
                         try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
-                        currentDelay *= 2 // Exponential backoff
-                        continue
+                        currentDelay *= 2
+                    } else if !hasMultipleKeys && attempts < maxAttempts {
+                        // Single key: just backoff
+                        logger.warning("Rate limit hit, retrying in \(currentDelay)s... (Attempt \(attempts)/\(maxAttempts))")
+                        try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
+                        currentDelay *= 2
                     }
-                    logger.error("Request failed after \(maxRetries) retries.")
-                    throw error
+                    // With multiple keys: immediately try next key (no delay within same rotation)
+                    continue
                     
                 case .networkError, .serverError:
-                    retries += 1
-                    if retries < maxRetries {
-                        logger.warning("Request failed, retrying in \(currentDelay)s... (Attempt \(retries)/\(maxRetries))")
+                    attempts += 1
+                    if attempts < maxAttempts {
+                        logger.warning("Request failed, retrying in \(currentDelay)s... (Attempt \(attempts)/\(maxAttempts))")
                         try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
-                        currentDelay *= 2 // Exponential backoff
+                        currentDelay *= 2
                     } else {
-                        logger.error("Request failed after \(maxRetries) retries.")
+                        logger.error("Request failed after \(maxAttempts) attempts.")
                         throw error
                     }
                 default:
                     throw error
                 }
             } catch {
-                // For other errors, check if it's a network-related URLError
                 let nsError = error as NSError
                 if nsError.domain == NSURLErrorDomain && [NSURLErrorNotConnectedToInternet, NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost].contains(nsError.code) {
-                    retries += 1
-                    if retries < maxRetries {
-                        logger.warning("Request failed with network error, retrying in \(currentDelay)s... (Attempt \(retries)/\(maxRetries))")
+                    attempts += 1
+                    if attempts < maxAttempts {
+                        logger.warning("Network error, retrying in \(currentDelay)s... (Attempt \(attempts)/\(maxAttempts))")
                         try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
-                        currentDelay *= 2 // Exponential backoff
+                        currentDelay *= 2
                     } else {
-                        logger.error("Request failed after \(maxRetries) retries with network error.")
+                        logger.error("Request failed after \(maxAttempts) attempts with network error.")
                         throw EnhancementError.networkError
                     }
                 } else {
                     throw error
                 }
             }
+            
+            lastUsedKey = currentKey
         }
 
-        // This part should ideally not be reached, but as a fallback:
-        throw EnhancementError.enhancementFailed
+        throw EnhancementError.rateLimitExceeded
     }
 
     func enhance(_ text: String) async throws -> (String, TimeInterval, String?) {

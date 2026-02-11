@@ -23,6 +23,7 @@ extension WhisperState {
             case .mistral:
                 return APIKeyManager.shared.hasAPIKey(forProvider: "Mistral")
             case .gemini:
+                // Gemini supports multi-key: usable if primary key OR any multi-key exists
                 return APIKeyManager.shared.hasAPIKey(forProvider: "Gemini")
             case .soniox:
                 return APIKeyManager.shared.hasAPIKey(forProvider: "Soniox")

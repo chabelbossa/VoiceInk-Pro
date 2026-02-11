@@ -24,7 +24,7 @@ struct APIKeyManagementView: View {
                 .tint(.blue)
                 
                 // Show connected status for all providers
-                if aiService.isAPIKeyValid && aiService.selectedProvider != .ollama {
+                if (aiService.isAPIKeyValid || aiService.hasAnyMultiKey) && aiService.selectedProvider != .ollama {
                     Spacer()
                     Circle()
                         .fill(Color.green)
@@ -196,12 +196,18 @@ struct APIKeyManagementView: View {
                     
                 } else {
                     // API Key Display for other providers
-                    if aiService.isAPIKeyValid {
+                    if aiService.isAPIKeyValid || aiService.hasAnyMultiKey {
                         HStack {
                             Text("API Key")
                             Spacer()
-                            Text("••••••••")
-                                .foregroundColor(.secondary)
+                            if !aiService.apiKey.isEmpty {
+                                Text("\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}")
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text("Multi-key only")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                             
                             // Multi-Key Load Balancing Button
                             MultiKeyButton(provider: aiService.selectedProvider.rawValue)
@@ -267,6 +273,8 @@ struct APIKeyManagementView: View {
             if aiService.selectedProvider == .ollama {
                 checkOllamaConnection()
             }
+            // Refresh multi-key status to ensure UI is correct on appear
+            aiService.refreshMultiKeyStatus()
         }
     }
     
