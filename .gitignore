@@ -99,3 +99,12 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk 
+# Local Build
+build_output/
+VoiceInk.app/
+
+# User Backups & Misc
+.gemini/
+.backup_perso/
+.backup_versions/
+VoiceInk Pro.app/
