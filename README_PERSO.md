@@ -109,8 +109,19 @@ C'est le problème le plus fréquent. Même si la case semble cochée, macOS peu
 
 Si VoiceInk n'arrive pas à capturer le contexte de l'écran (Enhancement échoue ou log "Screen capture failed"), c'est souvent parce que macOS a invalidé la permission silencieusement après un nouveau build (car la signature numérique de l'app change).
 
-**Symptôme :** La case est cochée dans les réglages système, mais l'app ne voit rien.
+**Symptôme :** La case est cochée, mais l'app ne voit rien ou redemande la permission en boucle (5+ fois).
 
+**Solution Définitive (Février 2026) :**
+J'ai modifié le script de build pour utiliser une **signature locale (ad-hoc)** et un fichier d'entitlements simplifié (`VoiceInkLocal.entitlements`). Cela stabilise l'identité de l'application.
+
+Si le problème persiste, force le reset complet des permissions :
+
+```bash
+tccutil reset Microphone com.prakashjoshipax.VoiceInk
+tccutil reset ScreenCapture com.prakashjoshipax.VoiceInk
+```
+
+Ensuite, lance l'application et accepte **une seule fois**.
 **Solution 1 (La plus fiable) :**
 
 1. Aller dans **Réglages Système** > **Confidentialité et sécurité** > **Enregistrement de l'écran**.
@@ -168,7 +179,7 @@ Le projet est configuré avec deux sources (remotes) :
 - **`upstream`** : Le dépôt original de Beingpax (pour les mises à jour).
 - **`origin`** : Ton dépôt personnel `VoiceInk-Pro` (pour sauvegarder tes modifications).
 
-### Pour RÉCUPÉRER les nouvelles versions du développeur :
+### Pour RÉCUPÉRER les nouvelles versions du développeur
 
 ```bash
 # Méthode 1 : Rebase (garde tes commits séparés)
@@ -181,7 +192,7 @@ git merge upstream/main
 
 _Si Git affiche un "CONFLICT", garde tes modifications locales pour les fichiers de licence._
 
-### Pour SAUVEGARDER tes changements sur ton GitHub :
+### Pour SAUVEGARDER tes changements sur ton GitHub
 
 Une fois que tout fonctionne, envoie tes modifications sur ton dépôt privé :
 

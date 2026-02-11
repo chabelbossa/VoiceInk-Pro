@@ -15,7 +15,8 @@ final class LicenseManager {
     private let migrationCompletedKey = "LicenseKeychainMigrationCompleted"
 
     private init() {
-        migrateFromUserDefaultsIfNeeded()
+        // Migration disabled for local builds without Apple Developer certificate
+        // migrateFromUserDefaultsIfNeeded()
     }
 
     // MARK: - License Key
