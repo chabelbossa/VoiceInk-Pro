@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// View for managing multiple API keys for load balancing
+/// Main view for managing multiple API keys — ALL keys are equal, no primary/secondary distinction.
 struct MultiKeySettingsView: View {
     let provider: String
     @State private var keys: [String] = []
@@ -8,6 +8,8 @@ struct MultiKeySettingsView: View {
     @State private var showAddKeyField = false
     @State private var keyToDelete: Int? = nil
     @State private var showDeleteConfirmation = false
+    @State private var showBulkAdd = false
+    @State private var bulkKeys: String = ""
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
@@ -15,9 +17,9 @@ struct MultiKeySettingsView: View {
             // Header
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Multi-Key Load Balancing")
+                    Text("Multi-Key Manager")
                         .font(.headline)
-                    Text("Add multiple API keys to avoid rate limits")
+                    Text("\(provider) — \(keys.count) key\(keys.count == 1 ? "" : "s") configured")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -27,11 +29,11 @@ struct MultiKeySettingsView: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
-            .padding(.bottom, 8)
+            .padding(.bottom, 4)
             
             Divider()
             
-            // Current keys list
+            // Keys list
             if keys.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "key.horizontal.fill")
@@ -40,24 +42,29 @@ struct MultiKeySettingsView: View {
                     Text("No API keys configured")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                    Text("Add API keys to enable automatic round-robin\nrotation and rate limit avoidance.")
+                    Text("Add your API keys below. All keys rotate\nautomatically (round-robin) to avoid rate limits.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 30)
+                .padding(.vertical, 24)
             } else {
                 ScrollView {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 6) {
                         ForEach(Array(keys.enumerated()), id: \.offset) { index, key in
-                            HStack {
-                                Image(systemName: index == 0 ? "star.fill" : "key.fill")
-                                    .foregroundColor(index == 0 ? .yellow : .secondary)
-                                    .frame(width: 20)
+                            HStack(spacing: 8) {
+                                // Key number badge
+                                Text("\(index + 1)")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.white)
+                                    .frame(width: 22, height: 22)
+                                    .background(Color.accentColor.opacity(0.8))
+                                    .clipShape(Circle())
                                 
-                                Text("Key \(index + 1)")
-                                    .font(.system(size: 13, weight: .medium))
+                                Image(systemName: "key.fill")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 11))
                                 
                                 Text(maskedKey(key))
                                     .font(.system(size: 12, design: .monospaced))
@@ -65,26 +72,19 @@ struct MultiKeySettingsView: View {
                                 
                                 Spacer()
                                 
-                                if index > 0 {
-                                    Button(action: {
-                                        keyToDelete = index
-                                        showDeleteConfirmation = true
-                                    }) {
-                                        Image(systemName: "trash")
-                                            .foregroundColor(.red)
-                                    }
-                                    .buttonStyle(.plain)
-                                } else {
-                                    Text("Primary")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 2)
-                                        .background(Color.secondary.opacity(0.1))
-                                        .cornerRadius(4)
+                                Button(action: {
+                                    keyToDelete = index
+                                    showDeleteConfirmation = true
+                                }) {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.red.opacity(0.7))
                                 }
+                                .buttonStyle(.plain)
+                                .help("Remove this key")
                             }
-                            .padding(10)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
                             .background(Color(NSColor.controlBackgroundColor))
                             .cornerRadius(8)
                         }
@@ -95,10 +95,10 @@ struct MultiKeySettingsView: View {
             
             Divider()
             
-            // Add new key section
+            // Add key section
             if showAddKeyField {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Add New API Key")
+                    Text("Add API Key")
                         .font(.subheadline)
                         .fontWeight(.medium)
                     
@@ -109,7 +109,7 @@ struct MultiKeySettingsView: View {
                         Button("Add") {
                             addKey()
                         }
-                        .disabled(newKey.isEmpty)
+                        .disabled(newKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .buttonStyle(.borderedProminent)
                         
                         Button("Cancel") {
@@ -119,30 +119,82 @@ struct MultiKeySettingsView: View {
                         .buttonStyle(.bordered)
                     }
                 }
-            } else {
-                Button(action: { showAddKeyField = true }) {
-                    Label("Add API Key", systemImage: "plus.circle.fill")
+            } else if showBulkAdd {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Bulk Add Keys")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Text("Paste multiple keys, one per line:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    TextEditor(text: $bulkKeys)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(height: 80)
+                        .border(Color.secondary.opacity(0.3))
+                        .cornerRadius(4)
+                    
+                    HStack {
+                        Button("Add All") {
+                            addBulkKeys()
+                        }
+                        .disabled(bulkKeys.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .buttonStyle(.borderedProminent)
+                        
+                        Button("Cancel") {
+                            bulkKeys = ""
+                            showBulkAdd = false
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
-                .buttonStyle(.bordered)
+            } else {
+                HStack(spacing: 12) {
+                    Button(action: { showAddKeyField = true }) {
+                        Label("Add Key", systemImage: "plus.circle.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Button(action: { showBulkAdd = true }) {
+                        Label("Bulk Add", systemImage: "doc.on.doc")
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Spacer()
+                    
+                    if !keys.isEmpty {
+                        Button(action: {
+                            removeAllKeys()
+                        }) {
+                            Label("Clear All", systemImage: "trash")
+                                .foregroundColor(.red)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
             }
             
             // Info section
             VStack(alignment: .leading, spacing: 6) {
-                Label("How it works:", systemImage: "info.circle")
+                Label("How Multi-Key Works:", systemImage: "info.circle")
                     .font(.caption)
                     .fontWeight(.medium)
                 
-                Text("Keys rotate automatically with each request (round-robin).\nIf a key hits its rate limit, it is skipped for 60 seconds.\nAll keys are stored securely in the macOS Keychain.")
+                Text("""
+                All keys rotate automatically (round-robin) with each request.
+                If a key hits a rate limit (429), it is skipped for 60 seconds.
+                Keys are stored securely in the macOS Keychain.
+                """)
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.blue.opacity(0.1))
+            .background(Color.blue.opacity(0.08))
             .cornerRadius(8)
         }
         .padding(20)
-        .frame(width: 450, height: 450)
+        .frame(width: 480, height: 520)
         .onAppear {
             loadKeys()
         }
@@ -154,7 +206,7 @@ struct MultiKeySettingsView: View {
                 }
             }
         } message: {
-            Text("This API key will be removed from the rotation pool.")
+            Text("This API key will be permanently removed.")
         }
     }
     
@@ -168,8 +220,8 @@ struct MultiKeySettingsView: View {
     }
     
     private func addKey() {
-        guard !newKey.isEmpty else { return }
-        let keyToAdd = newKey
+        let keyToAdd = newKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyToAdd.isEmpty else { return }
         
         Task {
             let success = await MultiKeyManager.shared.addKey(keyToAdd, forProvider: provider)
@@ -183,13 +235,37 @@ struct MultiKeySettingsView: View {
         }
     }
     
-    private func removeKey(at index: Int) {
-        // Don't remove the primary key (index 0)
-        guard index > 0 else { return }
+    private func addBulkKeys() {
+        let lines = bulkKeys.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        guard !lines.isEmpty else { return }
         
         Task {
-            // For additional keys, index in storage is index - 1
-            _ = await MultiKeyManager.shared.removeKey(at: index - 1, forProvider: provider)
+            for key in lines {
+                _ = await MultiKeyManager.shared.addKey(key, forProvider: provider)
+            }
+            await MainActor.run {
+                bulkKeys = ""
+                showBulkAdd = false
+                loadKeys()
+            }
+        }
+    }
+    
+    private func removeKey(at index: Int) {
+        Task {
+            _ = await MultiKeyManager.shared.removeKey(at: index, forProvider: provider)
+            await MainActor.run {
+                loadKeys()
+            }
+        }
+    }
+    
+    private func removeAllKeys() {
+        Task {
+            await MultiKeyManager.shared.removeAllKeys(forProvider: provider)
             await MainActor.run {
                 loadKeys()
             }
@@ -200,11 +276,11 @@ struct MultiKeySettingsView: View {
         guard key.count > 8 else { return String(repeating: "\u{2022}", count: 8) }
         let prefix = String(key.prefix(4))
         let suffix = String(key.suffix(4))
-        return "\(prefix)\u{2022}\u{2022}\u{2022}\u{2022}\(suffix)"
+        return "\(prefix)\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\(suffix)"
     }
 }
 
-/// Button to open multi-key settings (to be used in AI provider settings)
+/// Button to open multi-key settings — this is the PRIMARY way to manage API keys
 struct MultiKeyButton: View {
     let provider: String
     @State private var showSheet = false
@@ -212,14 +288,15 @@ struct MultiKeyButton: View {
     
     var body: some View {
         Button(action: { showSheet = true }) {
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Image(systemName: "key.horizontal.fill")
-                if keyCount > 1 {
-                    Text("\(keyCount) keys")
-                        .font(.caption)
+                    .font(.system(size: 12))
+                if keyCount > 0 {
+                    Text("\(keyCount) key\(keyCount == 1 ? "" : "s")")
+                        .font(.system(size: 12, weight: .medium))
                 } else {
-                    Text("Multi-Key")
-                        .font(.caption)
+                    Text("Add Keys")
+                        .font(.system(size: 12, weight: .medium))
                 }
             }
         }
@@ -231,6 +308,8 @@ struct MultiKeyButton: View {
             MultiKeySettingsView(provider: provider)
                 .onDisappear {
                     refreshKeyCount()
+                    // Notify that keys changed so UI updates
+                    NotificationCenter.default.post(name: .aiProviderKeyChanged, object: nil)
                 }
         }
     }

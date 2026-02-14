@@ -2,16 +2,17 @@ import Foundation
 import os
 
 /// Thread-safe manager for multiple API keys per provider with round-robin rotation and failover.
-/// All keys are stored securely in the macOS Keychain via KeychainService.
-/// The primary key (index 0) is managed by APIKeyManager; additional keys are managed here.
+/// ALL keys are managed here — there is no concept of "primary" vs "additional" key.
+/// Every key is equal and participates in round-robin rotation.
+/// Keys are stored securely in the macOS Keychain via KeychainService.
 actor MultiKeyManager {
     static let shared = MultiKeyManager()
     
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "MultiKeyManager")
     
-    /// In-memory index of additional keys per provider (the actual key values live in Keychain).
-    /// Key: provider lowercased, Value: array of Keychain identifiers for additional keys.
-    private var additionalKeyIds: [String: [String]] = [:]
+    /// In-memory index of all key IDs per provider.
+    /// Key: provider lowercased, Value: array of Keychain identifiers.
+    private var keyIds: [String: [String]] = [:]
     
     /// Round-robin index per provider
     private var lastUsedIndex: [String: Int] = [:]
@@ -28,11 +29,18 @@ actor MultiKeyManager {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let appFolder = appSupport.appendingPathComponent("com.prakashjoshipax.VoiceInk", isDirectory: true)
         try? FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
+        return appFolder.appendingPathComponent("multi_keys_v2.json")
+    }
+    
+    /// Legacy v1 metadata file (had primary/additional distinction)
+    private var legacyMetadataURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appFolder = appSupport.appendingPathComponent("com.prakashjoshipax.VoiceInk", isDirectory: true)
         return appFolder.appendingPathComponent("multi_keys_metadata.json")
     }
     
-    /// Legacy storage file to migrate from
-    private var legacyStorageURL: URL {
+    /// Legacy plaintext storage file
+    private var legacyPlaintextURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let appFolder = appSupport.appendingPathComponent("com.prakashjoshipax.VoiceInk", isDirectory: true)
         return appFolder.appendingPathComponent("multi_keys.json")
@@ -41,189 +49,223 @@ actor MultiKeyManager {
     private let keychain = KeychainService.shared
     
     private init() {
-        // Load metadata synchronously during init (actor is not yet isolated here)
+        // Load metadata
         let url = metadataURL
         if FileManager.default.fileExists(atPath: url.path) {
             do {
                 let data = try Data(contentsOf: url)
-                additionalKeyIds = try JSONDecoder().decode([String: [String]].self, from: data)
-                logger.info("Loaded multi-key metadata for \(self.additionalKeyIds.count) providers")
+                keyIds = try JSONDecoder().decode([String: [String]].self, from: data)
+                logger.info("Loaded multi-key v2 metadata for \(self.keyIds.count) providers")
             } catch {
-                logger.error("Failed to load multi-key metadata: \(error.localizedDescription)")
+                logger.error("Failed to load multi-key v2 metadata: \(error.localizedDescription)")
             }
         }
         
-        // Migrate from legacy plaintext storage if it exists
-        let legacyURL = legacyStorageURL
-        if FileManager.default.fileExists(atPath: legacyURL.path) {
-            migrateLegacyKeys(from: legacyURL)
-        }
+        // Migrate from legacy systems
+        migrateFromLegacySystems()
     }
     
     // MARK: - Legacy Migration
     
-    /// Migrates keys from the old plaintext JSON file to Keychain
-    private func migrateLegacyKeys(from url: URL) {
-        do {
-            let data = try Data(contentsOf: url)
-            let legacyKeys = try JSONDecoder().decode([String: [String]].self, from: data)
-            
-            var migratedCount = 0
-            for (provider, keys) in legacyKeys {
-                let providerLower = provider.lowercased()
-                for key in keys where !key.isEmpty {
-                    // Check if already migrated (avoid duplicates)
-                    let existingKeys = getAllKeysSync(forProvider: providerLower)
-                    if !existingKeys.contains(key) {
-                        let keyId = generateKeyId(forProvider: providerLower)
-                        if keychain.save(key, forKey: keyId) {
-                            if additionalKeyIds[providerLower] == nil {
-                                additionalKeyIds[providerLower] = []
-                            }
-                            additionalKeyIds[providerLower]?.append(keyId)
-                            migratedCount += 1
-                        }
+    /// Migrates keys from ALL legacy systems:
+    /// 1. APIKeyManager primary keys → MultiKeyManager
+    /// 2. Old multi_keys_metadata.json (v1 additional keys) → MultiKeyManager
+    /// 3. Old multi_keys.json (plaintext) → MultiKeyManager
+    private func migrateFromLegacySystems() {
+        var migrated = false
+        
+        // 1. Migrate primary keys from APIKeyManager for all providers
+        for provider in ["gemini", "groq", "openai", "anthropic", "cerebras", "mistral", "openrouter", "elevenlabs", "deepgram", "soniox"] {
+            if let primaryKey = APIKeyManager.shared.getAPIKey(forProvider: provider), !primaryKey.isEmpty {
+                let existingValues = getAllKeyValues(forProvider: provider)
+                if !existingValues.contains(primaryKey) {
+                    let keyId = generateKeyId(forProvider: provider)
+                    if keychain.save(primaryKey, forKey: keyId) {
+                        if keyIds[provider] == nil { keyIds[provider] = [] }
+                        keyIds[provider]?.append(keyId)
+                        migrated = true
+                        logger.info("Migrated primary key from APIKeyManager for provider: \(provider)")
                     }
                 }
             }
-            
-            if migratedCount > 0 {
-                saveMetadata()
-                logger.info("Migrated \(migratedCount) keys from legacy plaintext storage to Keychain")
+        }
+        
+        // 2. Migrate from v1 metadata (additional keys)
+        let v1URL = legacyMetadataURL
+        if FileManager.default.fileExists(atPath: v1URL.path) {
+            do {
+                let data = try Data(contentsOf: v1URL)
+                let v1Keys = try JSONDecoder().decode([String: [String]].self, from: data)
+                
+                for (provider, v1KeyIds) in v1Keys {
+                    let providerLower = provider.lowercased()
+                    for v1KeyId in v1KeyIds {
+                        if let keyValue = keychain.getString(forKey: v1KeyId), !keyValue.isEmpty {
+                            let existingValues = getAllKeyValues(forProvider: providerLower)
+                            if !existingValues.contains(keyValue) {
+                                // Re-use the same keychain entry, just track it
+                                if keyIds[providerLower] == nil { keyIds[providerLower] = [] }
+                                keyIds[providerLower]?.append(v1KeyId)
+                                migrated = true
+                            }
+                        }
+                    }
+                }
+                
+                // Remove legacy file
+                try? FileManager.default.removeItem(at: v1URL)
+                logger.info("Migrated from v1 multi-key metadata")
+            } catch {
+                logger.error("Failed to migrate v1 metadata: \(error.localizedDescription)")
             }
-            
-            // Remove legacy file after successful migration
-            try? FileManager.default.removeItem(at: url)
-            logger.info("Removed legacy multi_keys.json file")
-        } catch {
-            logger.error("Failed to migrate legacy keys: \(error.localizedDescription)")
+        }
+        
+        // 3. Migrate from legacy plaintext JSON
+        let plaintextURL = legacyPlaintextURL
+        if FileManager.default.fileExists(atPath: plaintextURL.path) {
+            do {
+                let data = try Data(contentsOf: plaintextURL)
+                let legacyKeys = try JSONDecoder().decode([String: [String]].self, from: data)
+                
+                for (provider, keys) in legacyKeys {
+                    let providerLower = provider.lowercased()
+                    for key in keys where !key.isEmpty {
+                        let existingValues = getAllKeyValues(forProvider: providerLower)
+                        if !existingValues.contains(key) {
+                            let keyId = generateKeyId(forProvider: providerLower)
+                            if keychain.save(key, forKey: keyId) {
+                                if keyIds[providerLower] == nil { keyIds[providerLower] = [] }
+                                keyIds[providerLower]?.append(keyId)
+                                migrated = true
+                            }
+                        }
+                    }
+                }
+                
+                try? FileManager.default.removeItem(at: plaintextURL)
+                logger.info("Migrated from legacy plaintext multi_keys.json")
+            } catch {
+                logger.error("Failed to migrate plaintext keys: \(error.localizedDescription)")
+            }
+        }
+        
+        if migrated {
+            saveMetadata()
         }
     }
     
     // MARK: - Key ID Generation
     
-    /// Generates a unique Keychain identifier for an additional key
     private func generateKeyId(forProvider provider: String) -> String {
         let uuid = UUID().uuidString.prefix(8)
-        return "multikey_\(provider.lowercased())_\(uuid)"
+        return "mk_\(provider.lowercased())_\(uuid)"
     }
     
     // MARK: - Metadata Persistence
     
-    /// Saves the key identifiers (not values) to disk for persistence across restarts
     private func saveMetadata() {
         do {
-            let data = try JSONEncoder().encode(additionalKeyIds)
+            let data = try JSONEncoder().encode(keyIds)
             try data.write(to: metadataURL, options: .atomic)
         } catch {
             logger.error("Failed to save multi-key metadata: \(error.localizedDescription)")
         }
     }
     
-    // MARK: - Key Storage
+    // MARK: - Key Value Retrieval (Internal)
     
-    /// Returns all API keys for a provider (primary + additional), reading values from Keychain
-    func getAllKeys(forProvider provider: String) -> [String] {
-        return getAllKeysSync(forProvider: provider)
-    }
-    
-    /// Internal synchronous version (used during migration and init)
-    private func getAllKeysSync(forProvider provider: String) -> [String] {
+    /// Gets all actual key values for a provider from Keychain
+    private func getAllKeyValues(forProvider provider: String) -> [String] {
         let providerLower = provider.lowercased()
-        var keys: [String] = []
+        guard let ids = keyIds[providerLower] else { return [] }
         
-        // Get primary key from APIKeyManager
-        if let primaryKey = APIKeyManager.shared.getAPIKey(forProvider: provider), !primaryKey.isEmpty {
-            keys.append(primaryKey)
-        }
-        
-        // Get additional keys from Keychain using stored identifiers
-        if let keyIds = additionalKeyIds[providerLower] {
-            for keyId in keyIds {
-                if let keyValue = keychain.getString(forKey: keyId), !keyValue.isEmpty {
-                    // Avoid duplicates with primary key
-                    if !keys.contains(keyValue) {
-                        keys.append(keyValue)
-                    }
+        var values: [String] = []
+        for keyId in ids {
+            if let value = keychain.getString(forKey: keyId), !value.isEmpty {
+                if !values.contains(value) {
+                    values.append(value)
                 }
             }
         }
-        
-        return keys
+        return values
     }
     
-    /// Adds a new API key for a provider, stored securely in Keychain
+    // MARK: - Public API: Key Storage
+    
+    /// Returns all API keys for a provider (all equal, no primary distinction)
+    func getAllKeys(forProvider provider: String) -> [String] {
+        return getAllKeyValues(forProvider: provider)
+    }
+    
+    /// Adds a new API key for a provider
     @discardableResult
     func addKey(_ key: String, forProvider provider: String) -> Bool {
         let providerLower = provider.lowercased()
         
         // Check for duplicates
-        let existingKeys = getAllKeysSync(forProvider: provider)
+        let existingKeys = getAllKeyValues(forProvider: providerLower)
         if existingKeys.contains(key) {
             logger.info("Key already exists for provider: \(provider)")
             return false
         }
         
-        // Generate a unique Keychain identifier and store the key
         let keyId = generateKeyId(forProvider: providerLower)
         guard keychain.save(key, forKey: keyId) else {
-            logger.error("Failed to save additional key to Keychain for provider: \(provider)")
+            logger.error("Failed to save key to Keychain for provider: \(provider)")
             return false
         }
         
-        // Track the key identifier
-        if additionalKeyIds[providerLower] == nil {
-            additionalKeyIds[providerLower] = []
+        if keyIds[providerLower] == nil {
+            keyIds[providerLower] = []
         }
-        additionalKeyIds[providerLower]?.append(keyId)
+        keyIds[providerLower]?.append(keyId)
         
         saveMetadata()
         
-        let totalCount = getAllKeysSync(forProvider: provider).count
+        let totalCount = getAllKeyValues(forProvider: providerLower).count
         logger.info("Added API key for provider: \(provider), total keys: \(totalCount)")
         return true
     }
     
-    /// Removes an additional key at a specific index (0-based index within additional keys only, not including primary)
+    /// Removes a key at a specific index (0-based, all keys are equal)
     @discardableResult
     func removeKey(at index: Int, forProvider provider: String) -> Bool {
         let providerLower = provider.lowercased()
         
-        guard var keyIds = additionalKeyIds[providerLower],
-              index >= 0 && index < keyIds.count else { return false }
+        guard var ids = keyIds[providerLower],
+              index >= 0 && index < ids.count else { return false }
         
-        let keyId = keyIds[index]
+        let keyId = ids[index]
         
         // Delete from Keychain
         keychain.delete(forKey: keyId)
         
         // Remove from tracking
-        keyIds.remove(at: index)
-        additionalKeyIds[providerLower] = keyIds.isEmpty ? nil : keyIds
+        ids.remove(at: index)
+        keyIds[providerLower] = ids.isEmpty ? nil : ids
         
-        // Reset rotation state for this provider
+        // Reset rotation state
         lastUsedIndex[providerLower] = nil
         failedKeys[providerLower] = nil
         failedKeyTimestamps[providerLower] = nil
         
         saveMetadata()
         
-        logger.info("Removed additional key at index \(index) for provider: \(provider)")
+        logger.info("Removed key at index \(index) for provider: \(provider)")
         return true
     }
     
-    /// Removes all additional keys for a provider (keeps primary)
-    func removeAllAdditionalKeys(forProvider provider: String) {
+    /// Removes all keys for a provider
+    func removeAllKeys(forProvider provider: String) {
         let providerLower = provider.lowercased()
         
-        // Delete all additional keys from Keychain
-        if let keyIds = additionalKeyIds[providerLower] {
-            for keyId in keyIds {
+        if let ids = keyIds[providerLower] {
+            for keyId in ids {
                 keychain.delete(forKey: keyId)
             }
         }
         
-        additionalKeyIds[providerLower] = nil
+        keyIds[providerLower] = nil
         lastUsedIndex[providerLower] = nil
         failedKeys[providerLower] = nil
         failedKeyTimestamps[providerLower] = nil
@@ -234,10 +276,10 @@ actor MultiKeyManager {
     // MARK: - Round-Robin Load Balancing
     
     /// Gets the next available API key using round-robin with failover.
-    /// This is the primary method that should be called for every API request.
+    /// This is THE method that should be called for every API request.
     func getNextKey(forProvider provider: String) -> String? {
         let providerLower = provider.lowercased()
-        let allKeys = getAllKeysSync(forProvider: provider)
+        let allKeys = getAllKeyValues(forProvider: providerLower)
         
         guard !allKeys.isEmpty else {
             logger.warning("No API keys available for provider: \(provider)")
@@ -284,10 +326,9 @@ actor MultiKeyManager {
     }
     
     /// Marks a key as temporarily failed (e.g., rate limited).
-    /// The key will be skipped for `failureCooldown` seconds.
     func markKeyAsFailed(_ key: String, forProvider provider: String) {
         let providerLower = provider.lowercased()
-        let allKeys = getAllKeysSync(forProvider: provider)
+        let allKeys = getAllKeyValues(forProvider: providerLower)
         
         guard let index = allKeys.firstIndex(of: key) else { return }
         
@@ -332,9 +373,9 @@ actor MultiKeyManager {
     
     // MARK: - Statistics
     
-    /// Returns total number of API keys for a provider (primary + additional)
+    /// Returns total number of API keys for a provider
     func keyCount(forProvider provider: String) -> Int {
-        return getAllKeysSync(forProvider: provider).count
+        return getAllKeyValues(forProvider: provider.lowercased()).count
     }
     
     /// Returns whether multiple keys are available for a provider
@@ -342,8 +383,8 @@ actor MultiKeyManager {
         return keyCount(forProvider: provider) > 1
     }
     
-    /// Returns whether any key exists for a provider (used to check configuration)
+    /// Returns whether any key exists for a provider
     func hasAnyKey(forProvider provider: String) -> Bool {
-        return !getAllKeysSync(forProvider: provider).isEmpty
+        return !getAllKeyValues(forProvider: provider.lowercased()).isEmpty
     }
 }

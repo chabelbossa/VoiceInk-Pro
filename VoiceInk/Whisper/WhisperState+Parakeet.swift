@@ -16,7 +16,27 @@ extension WhisperState {
     }
 
     func isParakeetModelDownloaded(named modelName: String) -> Bool {
-        UserDefaults.standard.bool(forKey: parakeetDefaultsKey(for: modelName))
+        let defaultsKey = parakeetDefaultsKey(for: modelName)
+        if UserDefaults.standard.bool(forKey: defaultsKey) {
+            return true
+        }
+
+        // Fallback: Check if file exists on disk to handle reinstall/reset cases
+        // This fixes the bug where models disappear after app reinstall
+        let version = parakeetVersion(for: modelName)
+        let cacheDirectory = parakeetCacheDirectory(for: version)
+        
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: cacheDirectory.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            // Check if directory is not empty
+            if let contents = try? FileManager.default.contentsOfDirectory(atPath: cacheDirectory.path), !contents.isEmpty {
+                // Found files, restore the state
+                UserDefaults.standard.set(true, forKey: defaultsKey)
+                return true
+            }
+        }
+
+        return false
     }
 
     func isParakeetModelDownloaded(_ model: ParakeetModel) -> Bool {

@@ -11,6 +11,7 @@ struct APIKeyManagementView: View {
     @State private var selectedOllamaModel: String = UserDefaults.standard.string(forKey: "ollamaSelectedModel") ?? "mistral"
     @State private var isCheckingOllama = false
     @State private var isEditingURL = false
+    @State private var multiKeyCount: Int = 0
     
     var body: some View {
         Section("AI Provider Integration") {
@@ -23,17 +24,9 @@ struct APIKeyManagementView: View {
                 .pickerStyle(.automatic)
                 .tint(.blue)
                 
-                // Show connected status for all providers
-                if (aiService.isAPIKeyValid || aiService.hasAnyMultiKey) && aiService.selectedProvider != .ollama {
-                    Spacer()
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 8, height: 8)
-                    Text("Connected")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                } else if aiService.selectedProvider == .ollama {
-                    Spacer()
+                // Show connected status
+                Spacer()
+                if aiService.selectedProvider == .ollama {
                     if isCheckingOllama {
                         ProgressView()
                             .controlSize(.small)
@@ -52,12 +45,20 @@ struct APIKeyManagementView: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
+                } else if multiKeyCount > 0 {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 8, height: 8)
+                    Text("\(multiKeyCount) key\(multiKeyCount == 1 ? "" : "s")")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
                 }
             }
             .onChange(of: aiService.selectedProvider) { oldValue, newValue in
                 if aiService.selectedProvider == .ollama {
                     checkOllamaConnection()
                 }
+                refreshMultiKeyCount()
             }
 
             VStack(alignment: .leading, spacing: 12) {
@@ -168,98 +169,54 @@ struct APIKeyManagementView: View {
 
                     Divider()
 
-                    if aiService.isAPIKeyValid {
-                        HStack {
-                            Text("API Key Set")
-                            Spacer()
-                            Button("Remove Key", role: .destructive) {
-                                aiService.clearAPIKey()
-                            }
-                        }
-                    } else {
-                        SecureField("API Key", text: $apiKey)
-                            .textFieldStyle(.roundedBorder)
-
-                        Button("Verify and Save") {
-                            isVerifying = true
-                            aiService.saveAPIKey(apiKey) { success, errorMessage in
-                                isVerifying = false
-                                if !success {
-                                    alertMessage = errorMessage ?? "Verification failed"
-                                    showAlert = true
-                                }
-                                apiKey = ""
-                            }
-                        }
-                        .disabled(aiService.customBaseURL.isEmpty || aiService.customModel.isEmpty || apiKey.isEmpty)
+                    // Multi-Key for custom provider too
+                    HStack {
+                        Text("API Keys")
+                            .font(.subheadline)
+                        Spacer()
+                        MultiKeyButton(provider: aiService.selectedProvider.rawValue)
                     }
                     
                 } else {
-                    // API Key Display for other providers
-                    if aiService.isAPIKeyValid || aiService.hasAnyMultiKey {
-                        HStack {
-                            Text("API Key")
-                            Spacer()
-                            if !aiService.apiKey.isEmpty {
-                                Text("\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}")
-                                    .foregroundColor(.secondary)
+                    // ========================================
+                    // ALL PROVIDERS: Multi-Key is THE interface
+                    // ========================================
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("API Keys")
+                                .font(.subheadline)
+                            if multiKeyCount > 0 {
+                                Text("Round-robin rotation active")
+                                    .font(.caption2)
+                                    .foregroundColor(.green)
                             } else {
-                                Text("Multi-key only")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            // Multi-Key Load Balancing Button
-                            MultiKeyButton(provider: aiService.selectedProvider.rawValue)
-                            
-                            Button("Remove", role: .destructive) {
-                                aiService.clearAPIKey()
+                                Text("No keys configured")
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
                             }
                         }
-                    } else {
-                        SecureField("API Key", text: $apiKey)
-                            .textFieldStyle(.roundedBorder)
-
-                        HStack {
-                            // Get API Key Link
-                            if let url = getAPIKeyURL() {
-                                Link(destination: url) {
-                                    HStack {
-                                        Image(systemName: "key.fill")
-                                        Text("Get API Key")
-                                    }
-                                    .font(.caption)
-                                    .foregroundColor(.blue)
-                                    .padding(.vertical, 4)
-                                    .padding(.horizontal, 8)
-                                    .background(Color.blue.opacity(0.1))
-                                    .cornerRadius(6)
+                        
+                        Spacer()
+                        
+                        // Get API Key Link
+                        if let url = getAPIKeyURL() {
+                            Link(destination: url) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.up.right.square")
+                                        .font(.system(size: 11))
+                                    Text("Get Key")
+                                        .font(.system(size: 11))
                                 }
-                                .buttonStyle(.plain)
+                                .foregroundColor(.blue)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(6)
                             }
-
-                            Spacer()
-
-                            Button(action: {
-                                isVerifying = true
-                                aiService.saveAPIKey(apiKey) { success, errorMessage in
-                                    isVerifying = false
-                                    if !success {
-                                        alertMessage = errorMessage ?? "Verification failed"
-                                        showAlert = true
-                                    }
-                                    apiKey = ""
-                                }
-                            }) {
-                                HStack {
-                                    if isVerifying {
-                                        ProgressView().controlSize(.small)
-                                    }
-                                    Text("Verify and Save")
-                                }
-                            }
-                            .disabled(apiKey.isEmpty)
+                            .buttonStyle(.plain)
                         }
+                        
+                        MultiKeyButton(provider: aiService.selectedProvider.rawValue)
                     }
                 }
             }
@@ -273,8 +230,21 @@ struct APIKeyManagementView: View {
             if aiService.selectedProvider == .ollama {
                 checkOllamaConnection()
             }
-            // Refresh multi-key status to ensure UI is correct on appear
-            aiService.refreshMultiKeyStatus()
+            refreshMultiKeyCount()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .aiProviderKeyChanged)) { _ in
+            refreshMultiKeyCount()
+        }
+    }
+    
+    private func refreshMultiKeyCount() {
+        Task {
+            let count = await MultiKeyManager.shared.keyCount(forProvider: aiService.selectedProvider.rawValue)
+            await MainActor.run {
+                multiKeyCount = count
+                // Update AIService state
+                aiService.refreshMultiKeyStatus()
+            }
         }
     }
     
