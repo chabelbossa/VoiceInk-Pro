@@ -63,66 +63,80 @@ codesign --force --sign "-" --preserve-metadata=identifier,entitlements "$EXPORT
 
 ## 3. Installer l'application
 
+Commande unique (tuer + installer + reset permissions + lancer) :
+
 ```bash
-# Tuer l'instance en cours (si lancée)
-pkill -x VoiceInk || true
-
-# Copier dans /Applications
-cp -R build_output/Export/VoiceInk.app /Applications/
-
-# Lancer
+pkill -x VoiceInk || true && \
+rm -rf /Applications/VoiceInk.app && \
+cp -R build_output/Export/VoiceInk.app /Applications/ && \
+tccutil reset Microphone com.prakashjoshipax.VoiceInk && \
+tccutil reset ScreenCapture com.prakashjoshipax.VoiceInk && \
+tccutil reset Accessibility com.prakashjoshipax.VoiceInk && \
+tccutil reset AppleEvents com.prakashjoshipax.VoiceInk && \
+echo "✅ Installé." && \
 open /Applications/VoiceInk.app
 ```
+
+> Après le lancement, macOS va demander chaque permission — accepte-les **une par une** (voir §4 pour les détails par permission).
 
 ---
 
 ## 4. Résoudre les problèmes de permissions (procédure complète)
 
-> **Utiliser cette procédure si :** l'app demande les permissions en boucle, crash au démarrage avec une erreur de signature, ou les permissions ne s'enregistrent pas après acceptation.
+> **Utiliser cette procédure si :** l'app demande les permissions en boucle, crash au démarrage, ou les permissions ne s'enregistrent pas.
 
-### Étape 1 — Fermer l'application
+### Étape 1 — Reset TCC + Réinstallation propre
 
 ```bash
+# Fermer l'app
 pkill -x VoiceInk || true
-```
 
-### Étape 2 — Réinitialiser TOUTES les permissions TCC
-
-```bash
+# Reset toutes les permissions
 tccutil reset Microphone com.prakashjoshipax.VoiceInk
 tccutil reset ScreenCapture com.prakashjoshipax.VoiceInk
 tccutil reset Accessibility com.prakashjoshipax.VoiceInk
 tccutil reset AppleEvents com.prakashjoshipax.VoiceInk
-```
 
-### Étape 3 — Supprimer l'ancienne installation
-
-```bash
-sudo rm -rf /Applications/VoiceInk.app
-```
-
-### Étape 4 — Rebuilder proprement
-
-```bash
+# Supprimer et réinstaller
+rm -rf /Applications/VoiceInk.app
 bash build_release.sh
-```
-
-### Étape 5 — Réinstaller
-
-```bash
 cp -R build_output/Export/VoiceInk.app /Applications/
-```
-
-### Étape 6 — Lancer et accepter les permissions UNE SEULE FOIS
-
-```bash
 open /Applications/VoiceInk.app
 ```
 
-macOS demandera les permissions (Micro, Screen Recording, Accessibilité). Les accepter **une par une**. Elles seront mémorisées durablement grâce à la signature ad-hoc stable.
+### Étape 2 — Accorder les permissions dans l'app
 
-> **Si l'app apparaît encore dans "Accessibilité" dans les Réglages Système :**
-> Ouvre Réglages Système > Confidentialité > Accessibilité, sélectionne VoiceInk, clique **"-"** pour la supprimer, puis relance l'app.
+Au premier lancement, l'app affiche un écran de setup avec 4 permissions :
+
+#### 🎤 Microphone Access
+
+- Clique le bouton dans l'app → macOS affiche une alerte → **Autoriser**.
+
+#### ⌨️ Keyboard Shortcut
+
+- Configure le raccourci clavier → aucune alerte système, se configure directement.
+
+#### 🖥️ Screen Recording Access
+
+1. Clique **"Request Permission"** dans l'app.
+2. macOS ouvre **Réglages Système > Confidentialité > Enregistrement de l'écran**.
+3. Active le toggle **VoiceInk**.
+4. Clique **"Refresh"** (icône ↺) dans l'app pour vérifier.
+
+#### ✋ Accessibility Access _(la plus problématique)_
+
+1. Clique **"Open System Settings"** dans l'app.
+2. macOS ouvre **Réglages Système > Confidentialité > Accessibilité**.
+3. **Si VoiceInk apparaît grisée ou décochée :**
+   - Clique sur **VoiceInk** pour la sélectionner.
+   - Clique le bouton **"-"** (Moins) en bas pour la **supprimer complètement** de la liste.
+4. **Ferme et relance l'app :**
+   ```bash
+   pkill -x VoiceInk && open /Applications/VoiceInk.app
+   ```
+5. L'app va redemander l'accès → une alerte système apparaît → clique **"Ouvrir les réglages"** → active le toggle.
+
+> ⚠️ **Pourquoi ce comportement ?** Sans signature Apple officielle, macOS peut "bloquer" l'entrée dans la liste Accessibilité après une réinstallation. La supprimer manuellement puis relancer est la seule façon de forcer une nouvelle demande propre.
 
 ---
 
@@ -168,10 +182,30 @@ git push origin feature/superwhisper-features
 
 ## 6. Dépannage rapide
 
-| Symptôme                                                                     | Solution                                                                                               |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Crash au démarrage (`Library not loaded: whisper.framework`)                 | Les frameworks ne sont pas re-signés → relancer `build_release.sh` (le script re-signe)                |
-| Boucle de permission (demande 5x)                                            | Procédure complète §4                                                                                  |
-| Build échoue (`entitlements require signing with a development certificate`) | Vérifier que `project.pbxproj` pointe vers `VoiceInkLocal.entitlements` et non `VoiceInk.entitlements` |
-| Push GitHub bloqué (`secret scanning`)                                       | Cliquer le lien fourni par GitHub pour autoriser le secret historique de l'upstream                    |
-| `whisper.xcframework` introuvable                                            | Vérifier le lien symbolique : `ls -la whisper.xcframework` → doit pointer vers le bon chemin           |
+| Symptôme                                                     | Solution                                                                                                             |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Crash au démarrage (`Library not loaded: whisper.framework`) | Frameworks non re-signés → relancer `build_release.sh`                                                               |
+| Boucle de permission (demande 5x)                            | Procédure complète §4                                                                                                |
+| Accessibilité toujours ❌ malgré acceptation                 | Supprimer VoiceInk de la liste dans Réglages Système, puis relancer l'app (voir §4 Étape 2)                          |
+| Screen Recording toujours ❌                                 | Reset TCC + relancer : `tccutil reset ScreenCapture com.prakashjoshipax.VoiceInk && open /Applications/VoiceInk.app` |
+| Build échoue (`entitlements require signing`)                | Vérifier que `project.pbxproj` → config Release → `VoiceInkLocal.entitlements`                                       |
+| Push GitHub bloqué (`secret scanning`)                       | Cliquer le lien fourni par GitHub pour autoriser le secret historique upstream                                       |
+| `whisper.xcframework` introuvable                            | `ls -la whisper.xcframework` → vérifier le lien symbolique                                                           |
+
+---
+
+## 7. Commandes rapides de référence
+
+```bash
+# Build complet
+bash build_release.sh
+
+# Installer + reset toutes les permissions + lancer
+pkill -x VoiceInk || true && rm -rf /Applications/VoiceInk.app && cp -R build_output/Export/VoiceInk.app /Applications/ && tccutil reset Microphone com.prakashjoshipax.VoiceInk && tccutil reset ScreenCapture com.prakashjoshipax.VoiceInk && tccutil reset Accessibility com.prakashjoshipax.VoiceInk && tccutil reset AppleEvents com.prakashjoshipax.VoiceInk && open /Applications/VoiceInk.app
+
+# Reset Accessibilité seule (si bloquée)
+tccutil reset Accessibility com.prakashjoshipax.VoiceInk && pkill -x VoiceInk; open /Applications/VoiceInk.app
+
+# Reset Screen Recording seule
+tccutil reset ScreenCapture com.prakashjoshipax.VoiceInk && pkill -x VoiceInk; open /Applications/VoiceInk.app
+```
