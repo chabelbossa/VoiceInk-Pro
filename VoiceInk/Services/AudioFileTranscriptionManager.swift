@@ -119,7 +119,8 @@ class AudioTranscriptionManager: ObservableObject {
                             aiRequestSystemMessage: enhancementService.lastSystemMessageSent,
                             aiRequestUserMessage: enhancementService.lastUserMessageSent,
                             powerModeName: powerModeName,
-                            powerModeEmoji: powerModeEmoji
+                            powerModeEmoji: powerModeEmoji,
+                            aiKeyUsed: enhancementService.lastAPIKeyUsed
                         )
                         modelContext.insert(transcription)
                         try modelContext.save()

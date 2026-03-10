@@ -54,6 +54,8 @@ class AIEnhancementService: ObservableObject {
 
     @Published var lastSystemMessageSent: String?
     @Published var lastUserMessageSent: String?
+    /// The masked API key that was used in the last successful enhancement (e.g. "sk-...ab12")
+    @Published var lastAPIKeyUsed: String?
 
     var activePrompt: CustomPrompt? {
         allPrompts.first { $0.id == selectedPromptId }
@@ -381,60 +383,55 @@ class AIEnhancementService: ObservableObject {
         }
     }
 
-    private func makeRequestWithRetry(text: String, mode: EnhancementPrompt, maxRetries: Int = 3, initialDelay: TimeInterval = 1.0) async throws -> String {
+    private func makeRequestWithRetry(text: String, mode: EnhancementPrompt, maxRetries: Int = 3, initialDelay: TimeInterval = 1.0) async throws -> (String, String?) {
+        // Returns (enhancedText, keyUsed)
         let provider = aiService.selectedProvider.rawValue
         let multiKeyManager = MultiKeyManager.shared
-        let hasMultipleKeys = await multiKeyManager.hasMultipleKeys(forProvider: provider)
         
-        // For multi-key: try each key before applying backoff
-        // Total attempts = number of keys * maxRetries (with backoff between full rotations)
-        let totalKeys = hasMultipleKeys ? await multiKeyManager.keyCount(forProvider: provider) : 1
+        // Total keys available (1 if single, N if multiple)
+        // Total attempts = number of keys × maxRetries (backoff kicks in after a full rotation)
+        let totalKeys = max(1, await multiKeyManager.keyCount(forProvider: provider))
         let maxAttempts = totalKeys * maxRetries
         
         var attempts = 0
         var currentDelay = initialDelay
-        var lastUsedKey: String?
+        // lastRotatedKey ensures getNextKey(after:) always advances from the correct position
+        var lastRotatedKey: String? = await multiKeyManager.lastUsedKey(forProvider: provider)
 
         while attempts < maxAttempts {
-            // Get the next key to use via round-robin
-            let currentKey: String
-            if hasMultipleKeys {
-                guard let nextKey = await multiKeyManager.getNextKey(forProvider: provider) else {
+            // Always go through getNextKey — works for 1 key or N keys identically
+            guard let currentKey = await multiKeyManager.getNextKey(forProvider: provider, after: lastRotatedKey) else {
+                // No key in MultiKeyManager at all — fall back to the legacy primary key
+                guard let legacyKey = await resolveAPIKey() else {
                     throw EnhancementError.notConfigured
                 }
-                currentKey = nextKey
-            } else {
-                guard let resolvedKey = await resolveAPIKey() else {
-                    throw EnhancementError.notConfigured
-                }
-                currentKey = resolvedKey
+                // Legacy single key: run one attempt with plain backoff
+                let result = try await makeRequest(text: text, mode: mode, apiKeyOverride: legacyKey)
+                return (result, legacyKey)
             }
+            // Remember this key so the next iteration advances from it
+            lastRotatedKey = currentKey
             
             do {
-                return try await makeRequest(text: text, mode: mode, apiKeyOverride: currentKey)
+                // Always pass currentKey explicitly — never let makeRequest call getNextKey() again
+                let result = try await makeRequest(text: text, mode: mode, apiKeyOverride: currentKey)
+                return (result, currentKey)
             } catch let error as EnhancementError {
                 switch error {
                 case .rateLimitExceeded:
-                    // Mark this key as failed so round-robin skips it
-                    if hasMultipleKeys {
-                        await multiKeyManager.markKeyAsFailed(currentKey, forProvider: provider)
-                        logger.warning("Rate limit on key, marked as failed. Trying next key... (Attempt \(attempts + 1)/\(maxAttempts))")
-                    }
+                    // Mark this key as failed so round-robin skips it on the next iteration
+                    await multiKeyManager.markKeyAsFailed(currentKey, forProvider: provider)
+                    logger.warning("Rate limit on key, marked as failed. Trying next key... (Attempt \(attempts + 1)/\(maxAttempts))")
                     
                     attempts += 1
                     
-                    // If we've rotated through all keys, apply backoff before next rotation
+                    // After a full rotation of all keys, apply exponential backoff
                     if attempts % totalKeys == 0 && attempts < maxAttempts {
-                        logger.warning("All keys exhausted in this rotation, backing off \(currentDelay)s...")
-                        try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
-                        currentDelay *= 2
-                    } else if !hasMultipleKeys && attempts < maxAttempts {
-                        // Single key: just backoff
-                        logger.warning("Rate limit hit, retrying in \(currentDelay)s... (Attempt \(attempts)/\(maxAttempts))")
+                        logger.warning("All \(totalKeys) key(s) exhausted in rotation #\(attempts / totalKeys), backing off \(currentDelay)s...")
                         try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
                         currentDelay *= 2
                     }
-                    // With multiple keys: immediately try next key (no delay within same rotation)
+                    // Immediately try next key within the same rotation (no delay)
                     continue
                     
                 case .networkError, .serverError:
@@ -466,8 +463,6 @@ class AIEnhancementService: ObservableObject {
                     throw error
                 }
             }
-            
-            lastUsedKey = currentKey
         }
 
         throw EnhancementError.rateLimitExceeded
@@ -478,14 +473,24 @@ class AIEnhancementService: ObservableObject {
         let enhancementPrompt: EnhancementPrompt = .transcriptionEnhancement
         let promptName = activePrompt?.title
 
-        do {
-            let result = try await makeRequestWithRetry(text: text, mode: enhancementPrompt)
-            let endTime = Date()
-            let duration = endTime.timeIntervalSince(startTime)
-            return (result, duration, promptName)
-        } catch {
-            throw error
+        let (result, keyUsed) = try await makeRequestWithRetry(text: text, mode: enhancementPrompt)
+        let endTime = Date()
+        let duration = endTime.timeIntervalSince(startTime)
+        
+        // Store masked key for history display
+        await MainActor.run {
+            self.lastAPIKeyUsed = Self.maskKey(keyUsed)
         }
+        
+        return (result, duration, promptName)
+    }
+    
+    /// Returns a masked version of the key: shows first 4 and last 4 characters.
+    static func maskKey(_ key: String?) -> String? {
+        guard let key = key, key.count > 8 else { return key }
+        let prefix = key.prefix(4)
+        let suffix = key.suffix(4)
+        return "\(prefix)...\(suffix)"
     }
 
     func captureScreenContext() async {

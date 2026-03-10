@@ -14,8 +14,8 @@ actor MultiKeyManager {
     /// Key: provider lowercased, Value: array of Keychain identifiers.
     private var keyIds: [String: [String]] = [:]
     
-    /// Round-robin index per provider
-    private var lastUsedIndex: [String: Int] = [:]
+    /// Round-robin: tracks the last used key VALUE per provider (not index, which can shift)
+    private var lastUsedKeyValue: [String: String] = [:]
     
     /// Track temporarily failed keys (rate limited) with their failure timestamps
     private var failedKeys: [String: Set<Int>] = [:]
@@ -245,7 +245,7 @@ actor MultiKeyManager {
         keyIds[providerLower] = ids.isEmpty ? nil : ids
         
         // Reset rotation state
-        lastUsedIndex[providerLower] = nil
+        lastUsedKeyValue[providerLower] = nil
         failedKeys[providerLower] = nil
         failedKeyTimestamps[providerLower] = nil
         
@@ -266,7 +266,7 @@ actor MultiKeyManager {
         }
         
         keyIds[providerLower] = nil
-        lastUsedIndex[providerLower] = nil
+        lastUsedKeyValue[providerLower] = nil
         failedKeys[providerLower] = nil
         failedKeyTimestamps[providerLower] = nil
         
@@ -276,8 +276,10 @@ actor MultiKeyManager {
     // MARK: - Round-Robin Load Balancing
     
     /// Gets the next available API key using round-robin with failover.
-    /// This is THE method that should be called for every API request.
-    func getNextKey(forProvider provider: String) -> String? {
+    /// Rotation advances from the previously used key value (not a positional index),
+    /// so it stays correct even if the keys array is rebuilt between calls.
+    /// - Parameter previousKey: The key that was just used. Pass nil to start from the beginning.
+    func getNextKey(forProvider provider: String, after previousKey: String? = nil) -> String? {
         let providerLower = provider.lowercased()
         let allKeys = getAllKeyValues(forProvider: providerLower)
         
@@ -288,6 +290,7 @@ actor MultiKeyManager {
         
         // Single key: no rotation needed
         if allKeys.count == 1 {
+            lastUsedKeyValue[providerLower] = allKeys[0]
             return allKeys[0]
         }
         
@@ -298,30 +301,38 @@ actor MultiKeyManager {
         let failedIndices = failedKeys[providerLower] ?? []
         let availableIndices = (0..<allKeys.count).filter { !failedIndices.contains($0) }
         
-        // If all keys failed, reset and start over
+        // If all keys failed, reset and start over from key 0
         if availableIndices.isEmpty {
             logger.warning("All \(allKeys.count) keys failed for \(provider), resetting failures")
             failedKeys[providerLower] = nil
             failedKeyTimestamps[providerLower] = nil
-            lastUsedIndex[providerLower] = 0
-            return allKeys[0]
+            let selected = allKeys[0]
+            lastUsedKeyValue[providerLower] = selected
+            return selected
         }
         
-        // Round-robin: advance to next available key
-        let lastIndex = lastUsedIndex[providerLower] ?? -1
-        var nextIndex = (lastIndex + 1) % allKeys.count
+        // Determine the starting position from the last used key value
+        // Prefer the explicitly passed previousKey, then fall back to lastUsedKeyValue
+        let anchorKey = previousKey ?? lastUsedKeyValue[providerLower]
+        let lastIndex: Int
+        if let anchor = anchorKey, let idx = allKeys.firstIndex(of: anchor) {
+            lastIndex = idx
+        } else {
+            // No previous key known: start before index 0 so next is index 0
+            lastIndex = -1
+        }
         
-        // Find next available (non-failed) index
+        // Round-robin: advance to next available key from lastIndex
+        var nextIndex = (lastIndex + 1) % allKeys.count
         var attempts = 0
         while !availableIndices.contains(nextIndex) && attempts < allKeys.count {
             nextIndex = (nextIndex + 1) % allKeys.count
             attempts += 1
         }
         
-        lastUsedIndex[providerLower] = nextIndex
-        
         let selectedKey = allKeys[nextIndex]
-        logger.debug("Selected key #\(nextIndex + 1)/\(allKeys.count) for provider: \(provider)")
+        lastUsedKeyValue[providerLower] = selectedKey
+        logger.debug("Selected key #\(nextIndex + 1)/\(allKeys.count) for provider: \(provider) (after key at index \(lastIndex))")
         return selectedKey
     }
     
@@ -330,7 +341,10 @@ actor MultiKeyManager {
         let providerLower = provider.lowercased()
         let allKeys = getAllKeyValues(forProvider: providerLower)
         
-        guard let index = allKeys.firstIndex(of: key) else { return }
+        guard let index = allKeys.firstIndex(of: key) else {
+            logger.warning("markKeyAsFailed: key not found for provider \(provider)")
+            return
+        }
         
         if failedKeys[providerLower] == nil {
             failedKeys[providerLower] = []
@@ -342,7 +356,14 @@ actor MultiKeyManager {
         }
         failedKeyTimestamps[providerLower]?[index] = Date()
         
-        logger.warning("Marked key #\(index + 1) as failed for provider: \(provider)")
+        let totalFailed = failedKeys[providerLower]?.count ?? 0
+        let totalKeys = allKeys.count
+        logger.warning("Marked key #\(index + 1) as failed for provider: \(provider) (\(totalFailed)/\(totalKeys) keys now failed)")
+    }
+    
+    /// Returns the last key that was selected for a provider (for logging / display).
+    func lastUsedKey(forProvider provider: String) -> String? {
+        return lastUsedKeyValue[provider.lowercased()]
     }
     
     /// Cleans up expired failure markers

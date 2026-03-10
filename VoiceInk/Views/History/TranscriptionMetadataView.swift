@@ -49,6 +49,15 @@ struct TranscriptionMetadataView: View {
                             label: "Enhancement Model",
                             value: aiModel
                         )
+                        
+                        if let keyUsed = transcription.aiKeyUsed {
+                            Divider()
+                            metadataRow(
+                                icon: "key.fill",
+                                label: "API Key Used",
+                                value: keyUsed
+                            )
+                        }
 
                         if let duration = transcription.enhancementDuration {
                             Divider()

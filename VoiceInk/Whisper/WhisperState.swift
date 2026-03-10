@@ -411,6 +411,7 @@ class WhisperState: NSObject, ObservableObject {
                     transcription.enhancementDuration = enhancementDuration
                     transcription.aiRequestSystemMessage = enhancementService.lastSystemMessageSent
                     transcription.aiRequestUserMessage = enhancementService.lastUserMessageSent
+                    transcription.aiKeyUsed = enhancementService.lastAPIKeyUsed
                     finalPastedText = enhancedText
                 } catch {
                     transcription.enhancedText = "Enhancement failed: \(error)"

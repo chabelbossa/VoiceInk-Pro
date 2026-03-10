@@ -25,6 +25,8 @@ final class Transcription {
     var powerModeName: String?
     var powerModeEmoji: String?
     var transcriptionStatus: String?
+    /// Masked API key used for AI enhancement (e.g. "sk-...ab12"). Nil if no key rotation.
+    var aiKeyUsed: String?
 
     init(text: String,
          duration: TimeInterval,
@@ -39,6 +41,7 @@ final class Transcription {
          aiRequestUserMessage: String? = nil,
          powerModeName: String? = nil,
          powerModeEmoji: String? = nil,
+         aiKeyUsed: String? = nil,
          transcriptionStatus: TranscriptionStatus = .pending) {
         self.id = UUID()
         self.text = text
@@ -55,6 +58,7 @@ final class Transcription {
         self.aiRequestUserMessage = aiRequestUserMessage
         self.powerModeName = powerModeName
         self.powerModeEmoji = powerModeEmoji
+        self.aiKeyUsed = aiKeyUsed
         self.transcriptionStatus = transcriptionStatus.rawValue
     }
 }
