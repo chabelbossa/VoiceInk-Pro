@@ -3,13 +3,14 @@ import AppKit
 
 struct ModelCardRowView: View {
     let model: any TranscriptionModel
-    @ObservedObject var whisperState: WhisperState
+    let fluidAudioModelManager: FluidAudioModelManager
+    let transcriptionModelManager: TranscriptionModelManager
     let isDownloaded: Bool
     let isCurrent: Bool
     let downloadProgress: [String: Double]
     let modelURL: URL?
     let isWarming: Bool
-    
+
     // Actions
     var deleteAction: () -> Void
     var setDefaultAction: () -> Void
@@ -41,11 +42,12 @@ struct ModelCardRowView: View {
                         setDefaultAction: setDefaultAction
                     )
                 }
-                    case .parakeet:
-            if let parakeetModel = model as? ParakeetModel {
-                ParakeetModelCardRowView(
-                    model: parakeetModel,
-                        whisperState: whisperState
+            case .fluidAudio:
+                if let fluidAudioModel = model as? FluidAudioModel {
+                    FluidAudioModelCardRowView(
+                        model: fluidAudioModel,
+                        fluidAudioModelManager: fluidAudioModelManager,
+                        transcriptionModelManager: transcriptionModelManager
                     )
                 }
             case .nativeApple:
@@ -56,7 +58,7 @@ struct ModelCardRowView: View {
                         setDefaultAction: setDefaultAction
                     )
                 }
-            case .groq, .elevenLabs, .deepgram, .mistral, .gemini, .soniox:
+            case .groq, .elevenLabs, .deepgram, .mistral, .gemini, .soniox, .speechmatics:
                 if let cloudModel = model as? CloudModel {
                     CloudModelCardView(
                         model: cloudModel,

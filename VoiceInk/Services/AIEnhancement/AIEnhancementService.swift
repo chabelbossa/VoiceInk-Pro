@@ -2,6 +2,7 @@ import Foundation
 import SwiftData
 import AppKit
 import os
+import LLMkit
 
 enum EnhancementPrompt {
     case transcriptionEnhancement
@@ -68,7 +69,10 @@ class AIEnhancementService: ObservableObject {
     private let aiService: AIService
     private let screenCaptureService: ScreenCaptureService
     private let customVocabularyService: CustomVocabularyService
-    private let baseTimeout: TimeInterval = 30
+    private var baseTimeout: TimeInterval {
+        let stored = UserDefaults.standard.integer(forKey: "EnhancementTimeoutSeconds")
+        return stored > 0 ? TimeInterval(stored) : 7
+    }
     private let rateLimitInterval: TimeInterval = 1.0
     private var lastRequestTime: Date?
     private let modelContext: ModelContext
@@ -84,7 +88,6 @@ class AIEnhancementService: ObservableObject {
         self.isEnhancementEnabled = UserDefaults.standard.bool(forKey: "isAIEnhancementEnabled")
         self.useClipboardContext = UserDefaults.standard.bool(forKey: "useClipboardContext")
         self.useScreenCaptureContext = UserDefaults.standard.bool(forKey: "useScreenCaptureContext")
-
         if let savedPromptsData = UserDefaults.standard.data(forKey: "customPrompts"),
            let decodedPrompts = try? JSONDecoder().decode([CustomPrompt].self, from: savedPromptsData) {
             self.customPrompts = decodedPrompts
@@ -227,7 +230,7 @@ class AIEnhancementService: ObservableObject {
         }
 
         guard !text.isEmpty else {
-            return "" // Silently return empty string instead of throwing error
+            return ""
         }
         
         // Resolve the API key: use override if provided, otherwise rotate
@@ -243,8 +246,7 @@ class AIEnhancementService: ObservableObject {
 
         let formattedText = "\n<TRANSCRIPT>\n\(text)\n</TRANSCRIPT>"
         let systemMessage = await getSystemMessage(for: mode)
-        
-        // Persist the exact payload being sent (also used for UI)
+
         await MainActor.run {
             self.lastSystemMessageSent = systemMessage
             self.lastUserMessageSent = formattedText
@@ -253,8 +255,7 @@ class AIEnhancementService: ObservableObject {
         if aiService.selectedProvider == .ollama {
             do {
                 let result = try await aiService.enhanceWithOllama(text: formattedText, systemPrompt: systemMessage)
-                let filteredResult = AIEnhancementOutputFilter.filter(result)
-                return filteredResult
+                return AIEnhancementOutputFilter.filter(result)
             } catch {
                 if let localError = error as? LocalAIError {
                     throw EnhancementError.customError(localError.errorDescription ?? "An unknown Ollama error occurred.")
@@ -264,123 +265,82 @@ class AIEnhancementService: ObservableObject {
             }
         }
 
-        try await waitForRateLimit()
-
-        switch aiService.selectedProvider {
-        case .anthropic:
-            let requestBody: [String: Any] = [
-                "model": aiService.currentModel,
-                "max_tokens": 8192,
-                "system": systemMessage,
-                "messages": [
-                    ["role": "user", "content": formattedText]
-                ]
-            ]
-
-            var request = URLRequest(url: URL(string: aiService.selectedProvider.baseURL)!)
-            request.httpMethod = "POST"
-            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.addValue(currentAPIKey, forHTTPHeaderField: "x-api-key")
-            request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.timeoutInterval = baseTimeout
-            request.httpBody = try? JSONSerialization.data(withJSONObject: requestBody)
-
+        if aiService.selectedProvider == .localCLI {
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw EnhancementError.invalidResponse
-                }
-
-                if httpResponse.statusCode == 200 {
-                    guard let jsonResponse = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                          let content = jsonResponse["content"] as? [[String: Any]],
-                          let firstContent = content.first,
-                          let enhancedText = firstContent["text"] as? String else {
-                        throw EnhancementError.enhancementFailed
-                    }
-
-                    let filteredText = AIEnhancementOutputFilter.filter(enhancedText.trimmingCharacters(in: .whitespacesAndNewlines))
-                    return filteredText
-                } else if httpResponse.statusCode == 429 {
-                    throw EnhancementError.rateLimitExceeded
-                } else if (500...599).contains(httpResponse.statusCode) {
-                    throw EnhancementError.serverError
-                } else {
-                    let errorString = String(data: data, encoding: .utf8) ?? "Could not decode error response."
-                    throw EnhancementError.customError("HTTP \(httpResponse.statusCode): \(errorString)")
-                }
-
-            } catch let error as EnhancementError {
-                throw error
-            } catch let error as URLError {
-                throw error
+                let result = try await aiService.enhanceWithLocalCLI(systemPrompt: systemMessage, userPrompt: formattedText)
+                return AIEnhancementOutputFilter.filter(result)
             } catch {
-                throw EnhancementError.customError(error.localizedDescription)
-            }
-
-        default:
-            let url = URL(string: aiService.selectedProvider.baseURL)!
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.addValue("Bearer \(currentAPIKey)", forHTTPHeaderField: "Authorization")
-            request.timeoutInterval = baseTimeout
-
-            let messages: [[String: Any]] = [
-                ["role": "system", "content": systemMessage],
-                ["role": "user", "content": formattedText]
-            ]
-
-            var requestBody: [String: Any] = [
-                "model": aiService.currentModel,
-                "messages": messages,
-                "temperature": aiService.currentModel.lowercased().hasPrefix("gpt-5") ? 1.0 : 0.3,
-                "stream": false
-            ]
-
-            // Add reasoning_effort parameter if the model supports it
-            if let reasoningEffort = ReasoningConfig.getReasoningParameter(for: aiService.currentModel) {
-                requestBody["reasoning_effort"] = reasoningEffort
-            }
-
-            request.httpBody = try? JSONSerialization.data(withJSONObject: requestBody)
-
-            do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw EnhancementError.invalidResponse
-                }
-
-                if httpResponse.statusCode == 200 {
-                    guard let jsonResponse = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                          let choices = jsonResponse["choices"] as? [[String: Any]],
-                          let firstChoice = choices.first,
-                          let message = firstChoice["message"] as? [String: Any],
-                          let enhancedText = message["content"] as? String else {
-                        throw EnhancementError.enhancementFailed
-                    }
-
-                    let filteredText = AIEnhancementOutputFilter.filter(enhancedText.trimmingCharacters(in: .whitespacesAndNewlines))
-                    return filteredText
-                } else if httpResponse.statusCode == 429 {
-                    throw EnhancementError.rateLimitExceeded
-                } else if (500...599).contains(httpResponse.statusCode) {
-                    throw EnhancementError.serverError
+                if let localError = error as? LocalCLIError {
+                    throw EnhancementError.customError(localError.errorDescription ?? "An unknown Local CLI error occurred.")
                 } else {
-                    let errorString = String(data: data, encoding: .utf8) ?? "Could not decode error response."
-                    throw EnhancementError.customError("HTTP \(httpResponse.statusCode): \(errorString)")
+                    throw EnhancementError.customError(error.localizedDescription)
                 }
-
-            } catch let error as EnhancementError {
-                throw error
-            } catch let error as URLError {
-                throw error
-            } catch {
-                throw EnhancementError.customError(error.localizedDescription)
             }
         }
+
+        try await waitForRateLimit()
+
+        do {
+            let result: String
+            switch aiService.selectedProvider {
+            case .anthropic:
+                result = try await AnthropicLLMClient.chatCompletion(
+                    apiKey: currentAPIKey,
+                    model: aiService.currentModel,
+                    messages: [.user(formattedText)],
+                    systemPrompt: systemMessage,
+                    timeout: baseTimeout
+                )
+            default:
+                guard let baseURL = URL(string: aiService.selectedProvider.baseURL) else {
+                    throw EnhancementError.customError("\(aiService.selectedProvider.rawValue) has an invalid API endpoint URL. Please update it in AI settings.")
+                }
+                let temperature = aiService.currentModel.lowercased().hasPrefix("gpt-5") ? 1.0 : 0.3
+                let reasoningEffort = ReasoningConfig.getReasoningParameter(for: aiService.currentModel)
+                let extraBody = ReasoningConfig.getExtraBodyParameters(for: aiService.currentModel)
+                result = try await OpenAILLMClient.chatCompletion(
+                    baseURL: baseURL,
+                    apiKey: currentAPIKey,
+                    model: aiService.currentModel,
+                    messages: [.user(formattedText)],
+                    systemPrompt: systemMessage,
+                    temperature: temperature,
+                    reasoningEffort: reasoningEffort,
+                    extraBody: extraBody,
+                    timeout: baseTimeout
+                )
+            }
+            return AIEnhancementOutputFilter.filter(result.trimmingCharacters(in: .whitespacesAndNewlines))
+        } catch let error as LLMKitError {
+            throw mapLLMKitError(error)
+        } catch let error as EnhancementError {
+            throw error
+        } catch {
+            throw EnhancementError.customError(error.localizedDescription)
+        }
+    }
+
+    private func mapLLMKitError(_ error: LLMKitError) -> EnhancementError {
+        switch error {
+        case .missingAPIKey:
+            return .notConfigured
+        case .httpError(let statusCode, let message):
+            if statusCode == 429 { return .rateLimitExceeded }
+            if (500...599).contains(statusCode) { return .serverError }
+            return .customError("HTTP \(statusCode): \(message)")
+        case .noResultReturned:
+            return .enhancementFailed
+        case .networkError:
+            return .networkError
+        case .timeout:
+            return .timeout
+        case .invalidURL, .decodingError, .encodingError:
+            return .customError(error.localizedDescription ?? "An unknown error occurred.")
+        }
+    }
+
+    private var retryOnTimeout: Bool {
+        UserDefaults.standard.bool(forKey: "EnhancementRetryOnTimeout")
     }
 
     private func makeRequestWithRetry(text: String, mode: EnhancementPrompt, maxRetries: Int = 3, initialDelay: TimeInterval = 1.0) async throws -> (String, String?) {
@@ -397,6 +357,8 @@ class AIEnhancementService: ObservableObject {
         var currentDelay = initialDelay
         // lastRotatedKey ensures getNextKey(after:) always advances from the correct position
         var lastRotatedKey: String? = await multiKeyManager.lastUsedKey(forProvider: provider)
+        
+        logger.notice("🚀 Enhancement starting — provider: \(provider), keys available: \(totalKeys), max attempts: \(maxAttempts)")
 
         while attempts < maxAttempts {
             // Always go through getNextKey — works for 1 key or N keys identically
@@ -444,6 +406,19 @@ class AIEnhancementService: ObservableObject {
                         logger.error("Request failed after \(maxAttempts) attempts.")
                         throw error
                     }
+                case .timeout:
+                    if retryOnTimeout {
+                        attempts += 1
+                        if attempts < maxAttempts {
+                            logger.warning("Request timed out, retrying immediately... (Attempt \(attempts)/\(maxAttempts))")
+                        } else {
+                            logger.error("Request timed out after \(maxAttempts) attempts.")
+                            throw error
+                        }
+                    } else {
+                        logger.error("Request timed out, failing immediately (retry disabled).")
+                        throw error
+                    }
                 default:
                     throw error
                 }
@@ -465,7 +440,8 @@ class AIEnhancementService: ObservableObject {
             }
         }
 
-        throw EnhancementError.rateLimitExceeded
+        logger.error("❌ All \(totalKeys) key(s) exhausted after \(maxAttempts) attempts for provider: \(provider)")
+        throw EnhancementError.customError("Rate limit exceeded on all \(totalKeys) key(s) after \(maxAttempts) attempts. Try reducing usage or wait 60s.")
     }
 
     func enhance(_ text: String) async throws -> (String, TimeInterval, String?) {
@@ -571,6 +547,7 @@ enum EnhancementError: Error {
     case networkError
     case serverError
     case rateLimitExceeded
+    case timeout
     case customError(String)
 }
 
@@ -589,6 +566,8 @@ extension EnhancementError: LocalizedError {
             return "The AI provider's server encountered an error. Please try again later."
         case .rateLimitExceeded:
             return "Rate limit exceeded. Please try again later."
+        case .timeout:
+            return "Enhancement request timed out. Check your connection or increase the timeout duration."
         case .customError(let message):
             return message
         }

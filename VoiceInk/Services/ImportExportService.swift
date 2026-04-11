@@ -13,7 +13,6 @@ struct GeneralSettings: Codable {
     let selectedHotkey2RawValue: String?
     let launchAtLoginEnabled: Bool?
     let isMenuBarOnly: Bool?
-    let useAppleScriptPaste: Bool?
     let recorderType: String?
     let isTranscriptionCleanupEnabled: Bool?
     let transcriptionRetentionMinutes: Int?
@@ -28,6 +27,7 @@ struct GeneralSettings: Codable {
     let isExperimentalFeaturesEnabled: Bool?
     let restoreClipboardAfterPaste: Bool?
     let clipboardRestoreDelay: Double?
+    let useAppleScriptPaste: Bool?
 }
 
 // Simple codable struct for vocabulary words (for export/import only)
@@ -54,7 +54,6 @@ class ImportExportService {
 
 
     private let keyIsMenuBarOnly = "IsMenuBarOnly"
-    private let keyUseAppleScriptPaste = "UseAppleScriptPaste"
     private let keyRecorderType = "RecorderType"
     private let keyIsAudioCleanupEnabled = "IsAudioCleanupEnabled"
     private let keyIsTranscriptionCleanupEnabled = "IsTranscriptionCleanupEnabled"
@@ -74,29 +73,29 @@ class ImportExportService {
     }
 
     @MainActor
-    func exportSettings(enhancementService: AIEnhancementService, whisperPrompt: WhisperPrompt, hotkeyManager: HotkeyManager, menuBarManager: MenuBarManager, mediaController: MediaController, playbackController: PlaybackController, soundManager: SoundManager, whisperState: WhisperState) {
+    func exportSettings(enhancementService: AIEnhancementService, whisperPrompt: WhisperPrompt, hotkeyManager: HotkeyManager, menuBarManager: MenuBarManager, mediaController: MediaController, playbackController: PlaybackController, soundManager: SoundManager, recorderUIManager: RecorderUIManager, modelContext: ModelContext) {
         let powerModeManager = PowerModeManager.shared
         let emojiManager = EmojiManager.shared
 
         let exportablePrompts = enhancementService.customPrompts.filter { !$0.isPredefined }
 
         let powerConfigs = powerModeManager.configurations
-        
+
         // Export custom models
         let customModels = CustomModelManager.shared.customModels
 
         // Fetch vocabulary words from SwiftData
         var exportedDictionaryItems: [VocabularyWordData]? = nil
         let vocabularyDescriptor = FetchDescriptor<VocabularyWord>()
-        if let items = try? whisperState.modelContext.fetch(vocabularyDescriptor), !items.isEmpty {
+        if let items = try? modelContext.fetch(vocabularyDescriptor), !items.isEmpty {
             exportedDictionaryItems = items.map { VocabularyWordData(word: $0.word) }
         }
 
         // Fetch word replacements from SwiftData
         var exportedWordReplacements: [String: String]? = nil
         let replacementsDescriptor = FetchDescriptor<WordReplacement>()
-        if let replacements = try? whisperState.modelContext.fetch(replacementsDescriptor), !replacements.isEmpty {
-            exportedWordReplacements = Dictionary(uniqueKeysWithValues: replacements.map { ($0.originalText, $0.replacementText) })
+        if let replacements = try? modelContext.fetch(replacementsDescriptor), !replacements.isEmpty {
+            exportedWordReplacements = Dictionary(replacements.map { ($0.originalText, $0.replacementText) }, uniquingKeysWith: { _, last in last })
         }
 
         let generalSettingsToExport = GeneralSettings(
@@ -107,8 +106,7 @@ class ImportExportService {
             selectedHotkey2RawValue: hotkeyManager.selectedHotkey2.rawValue,
             launchAtLoginEnabled: LaunchAtLogin.isEnabled,
             isMenuBarOnly: menuBarManager.isMenuBarOnly,
-            useAppleScriptPaste: UserDefaults.standard.bool(forKey: keyUseAppleScriptPaste),
-            recorderType: whisperState.recorderType,
+            recorderType: recorderUIManager.recorderType,
             isTranscriptionCleanupEnabled: UserDefaults.standard.bool(forKey: keyIsTranscriptionCleanupEnabled),
             transcriptionRetentionMinutes: UserDefaults.standard.integer(forKey: keyTranscriptionRetentionMinutes),
             isAudioCleanupEnabled: UserDefaults.standard.bool(forKey: keyIsAudioCleanupEnabled),
@@ -121,7 +119,8 @@ class ImportExportService {
             isTextFormattingEnabled: UserDefaults.standard.bool(forKey: keyIsTextFormattingEnabled),
             isExperimentalFeaturesEnabled: UserDefaults.standard.bool(forKey: "isExperimentalFeaturesEnabled"),
             restoreClipboardAfterPaste: UserDefaults.standard.bool(forKey: "restoreClipboardAfterPaste"),
-            clipboardRestoreDelay: UserDefaults.standard.double(forKey: "clipboardRestoreDelay")
+            clipboardRestoreDelay: UserDefaults.standard.double(forKey: "clipboardRestoreDelay"),
+            useAppleScriptPaste: UserDefaults.standard.bool(forKey: "useAppleScriptPaste")
         )
 
         let exportedSettings = VoiceInkExportedSettings(
@@ -167,7 +166,7 @@ class ImportExportService {
     }
 
     @MainActor
-    func importSettings(enhancementService: AIEnhancementService, whisperPrompt: WhisperPrompt, hotkeyManager: HotkeyManager, menuBarManager: MenuBarManager, mediaController: MediaController, playbackController: PlaybackController, soundManager: SoundManager, whisperState: WhisperState) {
+    func importSettings(enhancementService: AIEnhancementService, whisperPrompt: WhisperPrompt, hotkeyManager: HotkeyManager, menuBarManager: MenuBarManager, mediaController: MediaController, playbackController: PlaybackController, soundManager: SoundManager, recorderUIManager: RecorderUIManager, modelContext: ModelContext, transcriptionModelManager: TranscriptionModelManager) {
         let openPanel = NSOpenPanel()
         openPanel.allowedContentTypes = [UTType.json]
         openPanel.canChooseFiles = true
@@ -204,7 +203,7 @@ class ImportExportService {
                         let customModelManager = CustomModelManager.shared
                         customModelManager.customModels = modelsToImport
                         customModelManager.saveCustomModels() // Ensure they are persisted
-                        whisperState.refreshAllAvailableModels() // Refresh the UI
+                        transcriptionModelManager.refreshAllAvailableModels() // Refresh the UI
                         print("Successfully imported \(modelsToImport.count) custom models.")
                     } else {
                         print("No custom models found in the imported file.")
@@ -220,16 +219,16 @@ class ImportExportService {
                     // Import vocabulary words to SwiftData
                     if let itemsToImport = importedSettings.vocabularyWords {
                         let vocabularyDescriptor = FetchDescriptor<VocabularyWord>()
-                        let existingWords = (try? whisperState.modelContext.fetch(vocabularyDescriptor)) ?? []
+                        let existingWords = (try? modelContext.fetch(vocabularyDescriptor)) ?? []
                         let existingWordsSet = Set(existingWords.map { $0.word.lowercased() })
 
                         for item in itemsToImport {
                             if !existingWordsSet.contains(item.word.lowercased()) {
                                 let newWord = VocabularyWord(word: item.word)
-                                whisperState.modelContext.insert(newWord)
+                                modelContext.insert(newWord)
                             }
                         }
-                        try? whisperState.modelContext.save()
+                        try? modelContext.save()
                         print("Successfully imported vocabulary words to SwiftData.")
                     } else {
                         print("No vocabulary words found in the imported file. Existing items remain unchanged.")
@@ -238,7 +237,7 @@ class ImportExportService {
                     // Import word replacements to SwiftData
                     if let replacementsToImport = importedSettings.wordReplacements {
                         let replacementsDescriptor = FetchDescriptor<WordReplacement>()
-                        let existingReplacements = (try? whisperState.modelContext.fetch(replacementsDescriptor)) ?? []
+                        let existingReplacements = (try? modelContext.fetch(replacementsDescriptor)) ?? []
 
                         // Build a set of existing replacement keys for duplicate checking
                         var existingKeysSet = Set<String>()
@@ -261,12 +260,12 @@ class ImportExportService {
 
                             if !hasConflict {
                                 let newReplacement = WordReplacement(originalText: original, replacementText: replacement)
-                                whisperState.modelContext.insert(newReplacement)
+                                modelContext.insert(newReplacement)
                                 // Add these tokens to the set to prevent duplicates within the import
                                 existingKeysSet.formUnion(importTokens)
                             }
                         }
-                        try? whisperState.modelContext.save()
+                        try? modelContext.save()
                         print("Successfully imported word replacements to SwiftData.")
                     } else {
                         print("No word replacements found in the imported file. Existing replacements remain unchanged.")
@@ -296,13 +295,10 @@ class ImportExportService {
                         if let menuOnly = general.isMenuBarOnly {
                             menuBarManager.isMenuBarOnly = menuOnly
                         }
-                        if let appleScriptPaste = general.useAppleScriptPaste {
-                            UserDefaults.standard.set(appleScriptPaste, forKey: self.keyUseAppleScriptPaste)
-                        }
                         if let recType = general.recorderType {
-                            whisperState.recorderType = recType
+                            recorderUIManager.recorderType = recType
                         }
-                        
+
                         if let transcriptionCleanup = general.isTranscriptionCleanupEnabled {
                             UserDefaults.standard.set(transcriptionCleanup, forKey: self.keyIsTranscriptionCleanupEnabled)
                         }
@@ -342,6 +338,9 @@ class ImportExportService {
                         }
                         if let clipboardDelay = general.clipboardRestoreDelay {
                             UserDefaults.standard.set(clipboardDelay, forKey: "clipboardRestoreDelay")
+                        }
+                        if let appleScriptPaste = general.useAppleScriptPaste {
+                            UserDefaults.standard.set(appleScriptPaste, forKey: "useAppleScriptPaste")
                         }
                     }
 

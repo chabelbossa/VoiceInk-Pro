@@ -332,7 +332,7 @@ actor MultiKeyManager {
         
         let selectedKey = allKeys[nextIndex]
         lastUsedKeyValue[providerLower] = selectedKey
-        logger.debug("Selected key #\(nextIndex + 1)/\(allKeys.count) for provider: \(provider) (after key at index \(lastIndex))")
+        logger.notice("🔑 Selected key #\(nextIndex + 1)/\(allKeys.count) for provider: \(provider) (advancing from index \(lastIndex))")
         return selectedKey
     }
     

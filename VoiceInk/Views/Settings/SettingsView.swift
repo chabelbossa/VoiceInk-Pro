@@ -5,10 +5,12 @@ import LaunchAtLogin
 import AVFoundation
 
 struct SettingsView: View {
+    @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var updaterViewModel: UpdaterViewModel
     @EnvironmentObject private var menuBarManager: MenuBarManager
     @EnvironmentObject private var hotkeyManager: HotkeyManager
-    @EnvironmentObject private var whisperState: WhisperState
+    @EnvironmentObject private var recorderUIManager: RecorderUIManager
+    @EnvironmentObject private var transcriptionModelManager: TranscriptionModelManager
     @EnvironmentObject private var enhancementService: AIEnhancementService
     @StateObject private var deviceManager = AudioDeviceManager.shared
     @ObservedObject private var soundManager = SoundManager.shared
@@ -19,9 +21,10 @@ struct SettingsView: View {
     @AppStorage("enableAnnouncements") private var enableAnnouncements = true
     @AppStorage("restoreClipboardAfterPaste") private var restoreClipboardAfterPaste = true
     @AppStorage("clipboardRestoreDelay") private var clipboardRestoreDelay = 2.0
+    @AppStorage("useAppleScriptPaste") private var useAppleScriptPaste = false
     @State private var showResetOnboardingAlert = false
     @State private var currentShortcut = KeyboardShortcuts.getShortcut(for: .toggleMiniRecorder)
-    @State private var isCustomCancelEnabled = false
+    @State private var isCustomCancelEnabled = KeyboardShortcuts.getShortcut(for: .cancelRecorder) != nil
 
     // Expansion states - all collapsed by default
     @State private var isCustomCancelExpanded = false
@@ -34,8 +37,12 @@ struct SettingsView: View {
         Form {
             // MARK: - Shortcuts
             Section {
-                LabeledContent("Hotkey 1") {
+                LabeledContent("Shortcut 1") {
                     HStack(spacing: 8) {
+                        Spacer()
+                        if hotkeyManager.selectedHotkey1 != .none {
+                            hotkeyModePicker(binding: $hotkeyManager.hotkeyMode1)
+                        }
                         hotkeyPicker(binding: $hotkeyManager.selectedHotkey1)
                         if hotkeyManager.selectedHotkey1 == .custom {
                             KeyboardShortcuts.Recorder(for: .toggleMiniRecorder)
@@ -45,8 +52,10 @@ struct SettingsView: View {
                 }
 
                 if hotkeyManager.selectedHotkey2 != .none {
-                    LabeledContent("Hotkey 2") {
+                    LabeledContent("Shortcut 2") {
                         HStack(spacing: 8) {
+                            Spacer()
+                            hotkeyModePicker(binding: $hotkeyManager.hotkeyMode2)
                             hotkeyPicker(binding: $hotkeyManager.selectedHotkey2)
                             if hotkeyManager.selectedHotkey2 == .custom {
                                 KeyboardShortcuts.Recorder(for: .toggleMiniRecorder2)
@@ -64,14 +73,12 @@ struct SettingsView: View {
                 }
 
                 if hotkeyManager.selectedHotkey1 != .none && hotkeyManager.selectedHotkey2 == .none {
-                    Button("Add Second Hotkey") {
+                    Button("Add Second Shortcut") {
                         withAnimation { hotkeyManager.selectedHotkey2 = .rightOption }
                     }
                 }
             } header: {
                 Text("Shortcuts")
-            } footer: {
-                Text("Quick tap for hands-free recording, hold for push-to-talk.")
             }
 
             // MARK: - Additional Shortcuts
@@ -174,6 +181,14 @@ struct SettingsView: View {
                         Text("5s").tag(5.0)
                     }
                 }
+
+                // AppleScript Paste
+                Toggle(isOn: $useAppleScriptPaste) {
+                    HStack(spacing: 4) {
+                        Text("Use AppleScript Paste")
+                        InfoTip("Enable this if pasting doesn't work with your keyboard layout (e.g. Neo2). Uses AppleScript instead of simulated key events.")
+                    }
+                }
             }
 
             // MARK: - Power Mode
@@ -181,21 +196,12 @@ struct SettingsView: View {
 
             // MARK: - Interface
             Section("Interface") {
-                Picker("Recorder Style", selection: $whisperState.recorderType) {
+                Picker("Recorder Style", selection: $recorderUIManager.recorderType) {
                     Text("Notch").tag("notch")
                     Text("Mini").tag("mini")
                 }
                 .pickerStyle(.segmented)
 
-                Toggle(isOn: Binding(
-                    get: { UserDefaults.standard.bool(forKey: "UseAppleScriptPaste") },
-                    set: { UserDefaults.standard.set($0, forKey: "UseAppleScriptPaste") }
-                )) {
-                    HStack(spacing: 4) {
-                        Text("AppleScript Paste")
-                        InfoTip("Paste via System Events instead of direct keystrokes. Try this if paste isn't working in some apps.")
-                    }
-                }
             }
 
             // MARK: - Experimental
@@ -242,6 +248,46 @@ struct SettingsView: View {
                 Text("Control how VoiceInk handles your transcription data and audio recordings.")
             }
 
+            // MARK: - Backup
+            Section {
+                LabeledContent("Export Settings") {
+                    Button("Export") {
+                        ImportExportService.shared.exportSettings(
+                            enhancementService: enhancementService,
+                            whisperPrompt: WhisperPrompt(),
+                            hotkeyManager: hotkeyManager,
+                            menuBarManager: menuBarManager,
+                            mediaController: mediaController,
+                            playbackController: playbackController,
+                            soundManager: soundManager,
+                            recorderUIManager: recorderUIManager,
+                            modelContext: modelContext
+                        )
+                    }
+                }
+
+                LabeledContent("Import Settings") {
+                    Button("Import") {
+                        ImportExportService.shared.importSettings(
+                            enhancementService: enhancementService,
+                            whisperPrompt: WhisperPrompt(),
+                            hotkeyManager: hotkeyManager,
+                            menuBarManager: menuBarManager,
+                            mediaController: mediaController,
+                            playbackController: playbackController,
+                            soundManager: soundManager,
+                            recorderUIManager: recorderUIManager,
+                            modelContext: modelContext,
+                            transcriptionModelManager: transcriptionModelManager
+                        )
+                    }
+                }
+            } header: {
+                Text("Backup")
+            } footer: {
+                Text("Export or import all your settings, prompts, power modes, dictionary, and custom models.")
+            }
+
             // MARK: - Diagnostics
             Section("Diagnostics") {
                 DiagnosticsSettingsView()
@@ -250,9 +296,6 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .background(Color(NSColor.controlBackgroundColor))
-        .onAppear {
-            isCustomCancelEnabled = KeyboardShortcuts.getShortcut(for: .cancelRecorder) != nil
-        }
         .alert("Reset Onboarding", isPresented: $showResetOnboardingAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {
@@ -273,7 +316,18 @@ struct SettingsView: View {
             }
         }
         .labelsHidden()
-        .frame(width: 140)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func hotkeyModePicker(binding: Binding<HotkeyManager.HotkeyMode>) -> some View {
+        Picker("", selection: binding) {
+            ForEach(HotkeyManager.HotkeyMode.allCases, id: \.self) { mode in
+                Text(mode.displayName).tag(mode)
+            }
+        }
+        .labelsHidden()
+        .fixedSize()
     }
 }
 

@@ -11,6 +11,7 @@ enum AppDefaults {
             // Clipboard
             "restoreClipboardAfterPaste": true,
             "clipboardRestoreDelay": 2.0,
+            "useAppleScriptPaste": false,
 
             // Audio & Media
             "isSystemMuteEnabled": true,
@@ -35,17 +36,20 @@ enum AppDefaults {
             // UI & Behavior
             "IsMenuBarOnly": false,
             "powerModeAutoRestoreEnabled": false,
-            "UseAppleScriptPaste": false,
-
             // Hotkey
             "isMiddleClickToggleEnabled": false,
             "middleClickActivationDelay": 200,
 
             // Enhancement
             "isToggleEnhancementShortcutEnabled": true,
+            "SkipShortEnhancement": true,
+            "ShortEnhancementWordThreshold": 3,
+            "EnhancementTimeoutSeconds": 7,
+            "EnhancementRetryOnTimeout": true,
 
             // Model
             "PrewarmModelOnWake": true,
+
         ])
     }
 }

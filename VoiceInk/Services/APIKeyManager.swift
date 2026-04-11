@@ -20,6 +20,7 @@ final class APIKeyManager {
         "mistral": "mistralAPIKey",
         "elevenlabs": "elevenLabsAPIKey",
         "soniox": "sonioxAPIKey",
+        "speechmatics": "speechmaticsAPIKey",
         "openai": "openAIAPIKey",
         "anthropic": "anthropicAPIKey",
         "openrouter": "openRouterAPIKey"
@@ -34,6 +35,7 @@ final class APIKeyManager {
         "MistralAPIKey": "mistralAPIKey",
         "ElevenLabsAPIKey": "elevenLabsAPIKey",
         "SonioxAPIKey": "sonioxAPIKey",
+        "SpeechmaticsAPIKey": "speechmaticsAPIKey",
         "OpenAIAPIKey": "openAIAPIKey",
         "AnthropicAPIKey": "anthropicAPIKey",
         "OpenRouterAPIKey": "openRouterAPIKey"
@@ -51,7 +53,7 @@ final class APIKeyManager {
         let keyIdentifier = keychainIdentifier(forProvider: provider)
         let success = keychain.save(key, forKey: keyIdentifier)
         if success {
-            logger.info("Saved API key for provider: \(provider) with key: \(keyIdentifier)")
+            logger.info("Saved API key for provider: \(provider, privacy: .public) with key: \(keyIdentifier, privacy: .public)")
             // Clean up any remaining UserDefaults entries (both old and new format)
             cleanupUserDefaultsForProvider(provider)
         }
@@ -69,7 +71,7 @@ final class APIKeyManager {
 
         let oldKey = oldUserDefaultsKey(forProvider: provider)
         if let key = userDefaults.string(forKey: oldKey), !key.isEmpty {
-            logger.info("Migrating \(oldKey) to Keychain")
+            logger.info("Migrating \(oldKey, privacy: .public) to Keychain")
             keychain.save(key, forKey: keyIdentifier)
             userDefaults.removeObject(forKey: oldKey)
             return key
@@ -85,7 +87,7 @@ final class APIKeyManager {
         let success = keychain.delete(forKey: keyIdentifier)
         cleanupUserDefaultsForProvider(provider)
         if success {
-            logger.info("Deleted API key for provider: \(provider)")
+            logger.info("Deleted API key for provider: \(provider, privacy: .public)")
         }
         return success
     }
@@ -103,7 +105,7 @@ final class APIKeyManager {
         let keyIdentifier = customModelKeyIdentifier(for: modelId)
         let success = keychain.save(key, forKey: keyIdentifier)
         if success {
-            logger.info("Saved API key for custom model: \(modelId.uuidString)")
+            logger.info("Saved API key for custom model: \(modelId.uuidString, privacy: .public)")
         }
         return success
     }
@@ -120,7 +122,7 @@ final class APIKeyManager {
         let keyIdentifier = customModelKeyIdentifier(for: modelId)
         let success = keychain.delete(forKey: keyIdentifier)
         if success {
-            logger.info("Deleted API key for custom model: \(modelId.uuidString)")
+            logger.info("Deleted API key for custom model: \(modelId.uuidString, privacy: .public)")
         }
         return success
     }
@@ -142,14 +144,14 @@ final class APIKeyManager {
                     userDefaults.removeObject(forKey: oldKey)
                     migratedCount += 1
                 } else {
-                    logger.error("Failed to migrate \(oldKey)")
+                    logger.error("Failed to migrate \(oldKey, privacy: .public)")
                 }
             }
         }
 
         migrateCustomModelAPIKeys()
         userDefaults.set(true, forKey: migrationCompletedKey)
-        logger.info("Migration completed. Migrated \(migratedCount) API keys.")
+        logger.info("Migration completed. Migrated \(migratedCount, privacy: .public) API keys.")
     }
 
     /// Migrates custom model API keys from UserDefaults.
@@ -170,7 +172,7 @@ final class APIKeyManager {
                 keychain.save(model.apiKey, forKey: keyIdentifier)
             }
         } catch {
-            logger.error("Failed to decode legacy custom models: \(error.localizedDescription)")
+            logger.error("Failed to decode legacy custom models: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -202,6 +204,8 @@ final class APIKeyManager {
             return "ElevenLabsAPIKey"
         case "soniox":
             return "SonioxAPIKey"
+        case "speechmatics":
+            return "SpeechmaticsAPIKey"
         case "openai":
             return "OpenAIAPIKey"
         case "anthropic":
