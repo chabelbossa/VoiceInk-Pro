@@ -52,28 +52,28 @@ fi
 echo "🔨 Exporting Application..."
 # Manually copy the .app since we can't use exportArchive without signing
 mkdir -p "$EXPORT_PATH"
-cp -R "$ARCHIVE_PATH/Products/Applications/$APP_NAME.app" "$EXPORT_PATH/"
+cp -R "$ARCHIVE_PATH/Products/Applications/VoiceInk Pro.app" "$EXPORT_PATH/VoiceInk Pro.app"
 
 if [ $? -eq 0 ]; then
 
     echo "🔨 Cleaning quarantine attributes..."
-    xattr -cr "$EXPORT_PATH/$APP_NAME.app"
+    xattr -cr "$EXPORT_PATH/VoiceInk Pro.app"
 
     echo "🔨 Re-signing frameworks and app..."
     # Re-sign all frameworks and dylibs deeply
-    find "$EXPORT_PATH/$APP_NAME.app/Contents/Frameworks" \( -name "*.framework" -o -name "*.dylib" \) -print0 | while IFS= read -r -d '' item; do
+    find "$EXPORT_PATH/VoiceInk Pro.app/Contents/Frameworks" \( -name "*.framework" -o -name "*.dylib" \) -print0 | while IFS= read -r -d '' item; do
         echo "   Signing $item"
         codesign --force --sign "-" --preserve-metadata=identifier,entitlements "$item" &> /dev/null
     done
     
     # Re-sign the main app
-    codesign --force --sign "-" --preserve-metadata=identifier,entitlements "$EXPORT_PATH/$APP_NAME.app" &> /dev/null
+    codesign --force --sign "-" --preserve-metadata=identifier,entitlements "$EXPORT_PATH/VoiceInk Pro.app" &> /dev/null
 
     echo "✅ Build Successful!"
-    echo "📍 App Location: $EXPORT_PATH/$APP_NAME.app"
+    echo "📍 App Location: $EXPORT_PATH/VoiceInk Pro.app"
     
     # Move to root for easier access
-    cp -R "$EXPORT_PATH/$APP_NAME.app" ./
+    cp -R "$EXPORT_PATH/VoiceInk Pro.app" ./
     echo "📍 Copied to: ./$APP_NAME.app"
 else
     echo "❌ Export failed"
