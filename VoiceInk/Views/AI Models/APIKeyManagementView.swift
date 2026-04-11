@@ -276,13 +276,13 @@ struct APIKeyManagementView: View {
                                         .font(.system(size: 11))
                                 }
                             }
+                            .buttonStyle(.plain)
                             .foregroundColor(.blue)
                             .padding(.vertical, 4)
                             .padding(.horizontal, 8)
                             .background(Color.blue.opacity(0.1))
                             .cornerRadius(6)
                         }
-                        .buttonStyle(.plain)
                         
                         MultiKeyButton(provider: aiService.selectedProvider.rawValue)
                     }

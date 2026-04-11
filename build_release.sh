@@ -6,11 +6,26 @@ SCHEME_NAME="VoiceInk"
 BUILD_DIR="./build_output"
 ARCHIVE_PATH="$BUILD_DIR/$APP_NAME.xcarchive"
 EXPORT_PATH="$BUILD_DIR/Export"
+# Persistent SPM packages dir — kept between builds to avoid repeated downloads
+SPM_PACKAGES_DIR="./.spm-packages"
 
-# Clean previous build
+# Clean previous build (keep SourcePackages to avoid re-downloading)
 echo "🔨 Cleaning previous build..."
-rm -rf "$BUILD_DIR"
+rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH"
 mkdir -p "$BUILD_DIR"
+mkdir -p "$SPM_PACKAGES_DIR"
+
+# Resolve packages first (with fresh checkout dir)
+echo "🔨 Resolving Swift packages..."
+xcodebuild -resolvePackageDependencies \
+  -project "$APP_NAME.xcodeproj" \
+  -scheme "$SCHEME_NAME" \
+  -clonedSourcePackagesDirPath "$SPM_PACKAGES_DIR"
+
+if [ $? -ne 0 ]; then
+    echo "❌ Package resolution failed"
+    exit 1
+fi
 
 # Build Archive (Release Mode)
 echo "🔨 Archiving $APP_NAME..."
@@ -20,6 +35,7 @@ xcodebuild archive \
   -configuration Release \
   -archivePath "$ARCHIVE_PATH" \
   -destination 'generic/platform=macOS' \
+  -clonedSourcePackagesDirPath "$SPM_PACKAGES_DIR" \
   CODE_SIGN_IDENTITY="-" \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGNING_ALLOWED=YES \
