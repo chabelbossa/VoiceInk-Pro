@@ -7,6 +7,7 @@ enum AIProvider: String, CaseIterable {
     case gemini = "Gemini"
     case anthropic = "Anthropic"
     case openAI = "OpenAI"
+    case nvidia = "NVIDIA"
     case openRouter = "OpenRouter"
     case mistral = "Mistral"
     case elevenLabs = "ElevenLabs"
@@ -30,6 +31,8 @@ enum AIProvider: String, CaseIterable {
             return "https://api.anthropic.com/v1/messages"
         case .openAI:
             return "https://api.openai.com/v1/chat/completions"
+        case .nvidia:
+            return "https://integrate.api.nvidia.com/v1/chat/completions"
         case .openRouter:
             return "https://openrouter.ai/api/v1/chat/completions"
         case .mistral:
@@ -63,6 +66,8 @@ enum AIProvider: String, CaseIterable {
             return "claude-sonnet-4-6"
         case .openAI:
             return "gpt-5.4"
+        case .nvidia:
+            return "nvidia/llama-3.3-nemotron-super-49b-v1"
         case .mistral:
             return "mistral-large-latest"
         case .elevenLabs:
@@ -130,6 +135,46 @@ enum AIProvider: String, CaseIterable {
                 "gpt-4.1",
                 "gpt-4.1-mini",
                 "gpt-4.1-nano"
+            ]
+        case .nvidia:
+            return [
+                // Llama / Nemotron (NVIDIA)
+                "nvidia/llama-3.3-nemotron-super-49b-v1",
+                "nvidia/llama-3.1-nemotron-70b-instruct",
+                "nvidia/nemotron-4-340b-instruct",
+                "nvidia/nemotron-3-nano-30b-a3b",
+                "nvidia/nemotron-mini-4b-instruct",
+                // Meta Llama
+                "meta/llama-3.3-70b-instruct",
+                "meta/llama-3.1-8b-instruct",
+                "meta/llama-3.1-70b-instruct",
+                "meta/llama-3.1-405b-instruct",
+                // DeepSeek
+                "deepseek-ai/deepseek-r1",
+                "deepseek-ai/deepseek-v3.1",
+                "deepseek-ai/deepseek-v3.2",
+                "deepseek-ai/deepseek-v3",
+                // Qwen
+                "qwen/qwen3-235b-a22b",
+                "qwen/qwen3-30b-a3b",
+                // Mistral
+                "mistralai/mistral-large-2-123b",
+                "mistralai/mistral-small-3-24b",
+                "mistralai/devstral-2-123b-instruct-2512",
+                // Google
+                "google/gemma-3-27b-it",
+                "google/gemma-3-12b-it",
+                // MoonshotAI
+                "moonshotai/kimi-k2.5",
+                // Z.ai
+                "z-ai/glm-5.1",
+                "z-ai/glm-4.7",
+                // Microsoft
+                "microsoft/phi-4-reasoning",
+                "microsoft/phi-4",
+                // GPT-OSS on NVIDIA
+                "openai/gpt-oss-120b",
+                "openai/gpt-oss-20b"
             ]
         case .mistral:
             return [
