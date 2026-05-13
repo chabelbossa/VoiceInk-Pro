@@ -31,6 +31,9 @@ struct PowerModeConfig: Codable, Identifiable, Equatable {
     var selectedPrompt: String?
     var selectedTranscriptionModelName: String?
     var selectedLanguage: String?
+    var isTextFormattingEnabled: Bool = false
+    var removePunctuation: Bool = false
+    var lowercaseTranscription: Bool = false
     var useScreenCapture: Bool
     var selectedAIProvider: String?
     var selectedAIModel: String?
@@ -38,16 +41,17 @@ struct PowerModeConfig: Codable, Identifiable, Equatable {
     var isEnabled: Bool = true
     var isDefault: Bool = false
     var hotkeyShortcut: String? = nil
-        
+
     enum CodingKeys: String, CodingKey {
-        case id, name, emoji, appConfigs, urlConfigs, isAIEnhancementEnabled, selectedPrompt, selectedLanguage, useScreenCapture, selectedAIProvider, selectedAIModel, isAutoSendEnabled, autoSendKey, isEnabled, isDefault, hotkeyShortcut
+        case id, name, emoji, appConfigs, urlConfigs, isAIEnhancementEnabled, selectedPrompt, selectedLanguage, isTextFormattingEnabled, removePunctuation, lowercaseTranscription, useScreenCapture, selectedAIProvider, selectedAIModel, isAutoSendEnabled, autoSendKey, isEnabled, isDefault, hotkeyShortcut
         case selectedWhisperModel
         case selectedTranscriptionModelName
     }
-    
+
     init(id: UUID = UUID(), name: String, emoji: String, appConfigs: [AppConfig]? = nil,
          urlConfigs: [URLConfig]? = nil, isAIEnhancementEnabled: Bool, selectedPrompt: String? = nil,
          selectedTranscriptionModelName: String? = nil, selectedLanguage: String? = nil, useScreenCapture: Bool = false,
+         isTextFormattingEnabled: Bool = false, removePunctuation: Bool = false, lowercaseTranscription: Bool = false,
          selectedAIProvider: String? = nil, selectedAIModel: String? = nil, autoSendKey: AutoSendKey = .none, isEnabled: Bool = true, isDefault: Bool = false, hotkeyShortcut: String? = nil) {
         self.id = id
         self.name = name
@@ -62,6 +66,9 @@ struct PowerModeConfig: Codable, Identifiable, Equatable {
         self.selectedAIModel = selectedAIModel
         self.selectedTranscriptionModelName = selectedTranscriptionModelName ?? UserDefaults.standard.string(forKey: "CurrentTranscriptionModel")
         self.selectedLanguage = selectedLanguage ?? UserDefaults.standard.string(forKey: "SelectedLanguage") ?? "en"
+        self.isTextFormattingEnabled = isTextFormattingEnabled
+        self.removePunctuation = removePunctuation
+        self.lowercaseTranscription = lowercaseTranscription
         self.isEnabled = isEnabled
         self.isDefault = isDefault
         self.hotkeyShortcut = hotkeyShortcut
@@ -77,6 +84,9 @@ struct PowerModeConfig: Codable, Identifiable, Equatable {
         isAIEnhancementEnabled = try container.decode(Bool.self, forKey: .isAIEnhancementEnabled)
         selectedPrompt = try container.decodeIfPresent(String.self, forKey: .selectedPrompt)
         selectedLanguage = try container.decodeIfPresent(String.self, forKey: .selectedLanguage)
+        isTextFormattingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isTextFormattingEnabled) ?? false
+        removePunctuation = try container.decodeIfPresent(Bool.self, forKey: .removePunctuation) ?? false
+        lowercaseTranscription = try container.decodeIfPresent(Bool.self, forKey: .lowercaseTranscription) ?? false
         useScreenCapture = try container.decode(Bool.self, forKey: .useScreenCapture)
         selectedAIProvider = try container.decodeIfPresent(String.self, forKey: .selectedAIProvider)
         selectedAIModel = try container.decodeIfPresent(String.self, forKey: .selectedAIModel)
@@ -112,6 +122,9 @@ struct PowerModeConfig: Codable, Identifiable, Equatable {
         try container.encode(isAIEnhancementEnabled, forKey: .isAIEnhancementEnabled)
         try container.encodeIfPresent(selectedPrompt, forKey: .selectedPrompt)
         try container.encodeIfPresent(selectedLanguage, forKey: .selectedLanguage)
+        try container.encode(isTextFormattingEnabled, forKey: .isTextFormattingEnabled)
+        try container.encode(removePunctuation, forKey: .removePunctuation)
+        try container.encode(lowercaseTranscription, forKey: .lowercaseTranscription)
         try container.encode(useScreenCapture, forKey: .useScreenCapture)
         try container.encodeIfPresent(selectedAIProvider, forKey: .selectedAIProvider)
         try container.encodeIfPresent(selectedAIModel, forKey: .selectedAIModel)
@@ -121,8 +134,8 @@ struct PowerModeConfig: Codable, Identifiable, Equatable {
         try container.encode(isDefault, forKey: .isDefault)
         try container.encodeIfPresent(hotkeyShortcut, forKey: .hotkeyShortcut)
     }
-    
-    
+
+
     static func == (lhs: PowerModeConfig, rhs: PowerModeConfig) -> Bool {
         lhs.id == rhs.id
     }
@@ -132,13 +145,13 @@ struct AppConfig: Codable, Identifiable, Equatable {
     let id: UUID
     var bundleIdentifier: String
     var appName: String
-    
+
     init(id: UUID = UUID(), bundleIdentifier: String, appName: String) {
         self.id = id
         self.bundleIdentifier = bundleIdentifier
         self.appName = appName
     }
-    
+
     static func == (lhs: AppConfig, rhs: AppConfig) -> Bool {
         lhs.id == rhs.id
     }
@@ -147,12 +160,12 @@ struct AppConfig: Codable, Identifiable, Equatable {
 struct URLConfig: Codable, Identifiable, Equatable {
     let id: UUID
     var url: String
-    
+
     init(id: UUID = UUID(), url: String) {
         self.id = id
         self.url = url
     }
-    
+
     static func == (lhs: URLConfig, rhs: URLConfig) -> Bool {
         lhs.id == rhs.id
     }
@@ -222,12 +235,12 @@ class PowerModeManager: ObservableObject {
 
     func getConfigurationForURL(_ url: String) -> PowerModeConfig? {
         let cleanedURL = cleanURL(url)
-        
+
         for config in configurations.filter({ $0.isEnabled }) {
             if let urlConfigs = config.urlConfigs {
                 for urlConfig in urlConfigs {
                     let configURL = cleanURL(urlConfig.url)
-                    
+
                     if cleanedURL.contains(configURL) {
                         return config
                     }
@@ -236,7 +249,7 @@ class PowerModeManager: ObservableObject {
         }
         return nil
     }
-    
+
     func getConfigurationForApp(_ bundleId: String) -> PowerModeConfig? {
         for config in configurations.filter({ $0.isEnabled }) {
             if let appConfigs = config.appConfigs {
@@ -247,15 +260,15 @@ class PowerModeManager: ObservableObject {
         }
         return nil
     }
-    
+
     func getDefaultConfiguration() -> PowerModeConfig? {
         return configurations.first { $0.isEnabled && $0.isDefault }
     }
-    
+
     func hasDefaultConfiguration() -> Bool {
         return configurations.contains { $0.isDefault }
     }
-    
+
     func setAsDefault(configId: UUID, skipSave: Bool = false) {
         for index in configurations.indices {
             configurations[index].isDefault = false
@@ -269,21 +282,21 @@ class PowerModeManager: ObservableObject {
             saveConfigurations()
         }
     }
-    
+
     func enableConfiguration(with id: UUID) {
         if let index = configurations.firstIndex(where: { $0.id == id }) {
             configurations[index].isEnabled = true
             saveConfigurations()
         }
     }
-    
+
     func disableConfiguration(with id: UUID) {
         if let index = configurations.firstIndex(where: { $0.id == id }) {
             configurations[index].isEnabled = false
             saveConfigurations()
         }
     }
-    
+
     var enabledConfigurations: [PowerModeConfig] {
         return configurations.filter { $0.isEnabled }
     }
@@ -345,4 +358,4 @@ class PowerModeManager: ObservableObject {
     func isEmojiInUse(_ emoji: String) -> Bool {
         return configurations.contains { $0.emoji == emoji }
     }
-} 
+}

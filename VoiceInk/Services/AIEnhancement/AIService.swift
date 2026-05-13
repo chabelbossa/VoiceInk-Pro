@@ -14,6 +14,7 @@ enum AIProvider: String, CaseIterable {
     case deepgram = "Deepgram"
     case soniox = "Soniox"
     case speechmatics = "Speechmatics"
+    case assemblyAI = "AssemblyAI"
     case ollama = "Ollama"
     case localCLI = "Local CLI"
     case custom = "Custom"
@@ -45,6 +46,8 @@ enum AIProvider: String, CaseIterable {
             return "https://api.soniox.com/v1"
         case .speechmatics:
             return "https://asr.api.speechmatics.com/v2"
+        case .assemblyAI:
+            return "https://api.assemblyai.com/v2/transcript"
         case .ollama:
             return UserDefaults.standard.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434"
         case .localCLI:
@@ -78,6 +81,8 @@ enum AIProvider: String, CaseIterable {
             return "stt-async-v4"
         case .speechmatics:
             return "speechmatics-enhanced"
+        case .assemblyAI:
+            return "universal-3-pro"
         case .ollama:
             return UserDefaults.standard.string(forKey: "ollamaSelectedModel") ?? "mistral"
         case .localCLI:
@@ -102,7 +107,6 @@ enum AIProvider: String, CaseIterable {
             return [
                 "llama-3.1-8b-instant",
                 "llama-3.3-70b-versatile",
-                "moonshotai/kimi-k2-instruct-0905",
                 "qwen/qwen3-32b",
                 "openai/gpt-oss-120b",
                 "openai/gpt-oss-20b"
@@ -118,6 +122,7 @@ enum AIProvider: String, CaseIterable {
             ]
         case .anthropic:
             return [
+                "claude-opus-4-7",
                 "claude-opus-4-6",
                 "claude-sonnet-4-6",
                 "claude-opus-4-5",
@@ -126,12 +131,11 @@ enum AIProvider: String, CaseIterable {
             ]
         case .openAI:
             return [
+                "gpt-5.5",
                 "gpt-5.4",
                 "gpt-5.4-mini",
                 "gpt-5.4-nano",
                 "gpt-5.2",
-                "gpt-5-mini",
-                "gpt-5-nano",
                 "gpt-4.1",
                 "gpt-4.1-mini",
                 "gpt-4.1-nano"
@@ -190,6 +194,8 @@ enum AIProvider: String, CaseIterable {
             return ["stt-async-v4"]
         case .speechmatics:
             return ["speechmatics-enhanced"]
+        case .assemblyAI:
+            return ["universal-3-pro"]
         case .ollama:
             return []
         case .localCLI:
@@ -429,6 +435,8 @@ class AIService: ObservableObject {
                 result = await SonioxClient.verifyAPIKey(key)
             case .speechmatics:
                 result = await SpeechmaticsClient.verifyAPIKey(key)
+            case .assemblyAI:
+                result = await AssemblyAIClient.verifyAPIKey(key)
             case .openRouter:
                 result = await OpenRouterClient.verifyAPIKey(key, model: currentModel)
             case .gemini:

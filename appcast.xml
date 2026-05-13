@@ -3,26 +3,24 @@
     <channel>
         <title>VoiceInk</title>
         <item>
-            <title>1.73</title>
+            <title>1.76</title>
             <description><![CDATA[
-                <h3>What's New in V 1.73</h3>
+                <h3>What's New in v1.76</h3>
                 <ul>
-                    <li>🎙️ Parakeet on-device streaming support</li>
-                    <li>🗣️ Speechmatics real-time transcription model support</li>
-                    <li>📂 Multi-file transcription queue support</li>
-                    <li>📖 Auto-learn vocabulary (Experimental)</li>
-                    <li>⚡ Dictionary quick-add panel</li>
-                    <li>🔄 Re-enhance only button in transcript history</li>
-                    <li>🖥️ Local CLI enhancement by @mitsuhiko</li>
-                    <li>📋 Inline history view</li>
-                    <li>🐛 Bug fixes and stability improvements</li>
+                    <li>🦜 Updated Parakeet model (delete and re-download the model)</li>
+                    <li>☁️ Added AssemblyAI and Cartesia transcription models</li>
+                    <li>📝 Added transcription formatting controls</li>
+                    <li>📊 Stats are now stored separately from transcript history</li>
+                    <li>🎙️ Improved recording startup reliability</li>
+                    <li>🍎 Fixed Apple Speech issue</li>
+                    <li>🐛 Minor fixes and improvements</li>
                 </ul>
             ]]></description>
-            <pubDate>Fri, 10 Apr 2026 21:26:01 +0545</pubDate>
-            <sparkle:version>173</sparkle:version>
-            <sparkle:shortVersionString>1.73</sparkle:shortVersionString>
+            <pubDate>Thu, 07 May 2026 22:22:54 +0545</pubDate>
+            <sparkle:version>176</sparkle:version>
+            <sparkle:shortVersionString>1.76</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.4</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/Beingpax/VoiceInk/releases/download/v1.73/VoiceInk.dmg" length="13080046" type="application/octet-stream" sparkle:edSignature="sWadrWYh7OigKSA3fiRnaEcVXWgl81ydhknciTlswaks/yBc1pr0edZL/HU39134RVvsVjFuN7lWtVJgOgidDA=="/>
+            <enclosure url="https://github.com/Beingpax/VoiceInk/releases/download/v1.76/VoiceInk.dmg" length="14248109" type="application/octet-stream" sparkle:edSignature="VIHBaVue5hfpx8nQsB0VS3tliha3Dx8B/MWZ5vRNWNNufmjh3P86VRKt/vH1sVfV37g7I84TVpuTaPc0YRAxCw=="/>
         </item>
     </channel>
 </rss>

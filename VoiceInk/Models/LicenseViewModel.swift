@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import os
 
 @MainActor
 class LicenseViewModel: ObservableObject {
@@ -13,10 +14,12 @@ class LicenseViewModel: ObservableObject {
     @Published var licenseKey: String = ""
     @Published var isValidating = false
     @Published var validationMessage: String?
+    @Published var validationSuccess: Bool = false
     @Published private(set) var activationsLimit: Int = 0
 
     private let trialPeriodDays = 7
     private let polarService = PolarService()
+    private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "LicenseViewModel")
     private let userDefaults = UserDefaults.standard
     private let licenseManager = LicenseManager.shared
 
@@ -53,6 +56,7 @@ class LicenseViewModel: ObservableObject {
     func validateLicense() async {
         // Always validate successfully - CUSTOM MODIFICATION
         licenseState = .licensed
+        validationSuccess = true
         validationMessage = "License activated successfully!"
         NotificationCenter.default.post(name: .licenseStatusChanged, object: nil)
         isValidating = false
@@ -74,6 +78,7 @@ class LicenseViewModel: ObservableObject {
         licenseState = .licensed
         licenseKey = ""
         validationMessage = nil
+        validationSuccess = false
         activationsLimit = 0
         NotificationCenter.default.post(name: .licenseStatusChanged, object: nil)
     }
