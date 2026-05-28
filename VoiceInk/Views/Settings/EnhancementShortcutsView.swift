@@ -1,5 +1,4 @@
 import SwiftUI
-import KeyboardShortcuts
 
 struct EnhancementShortcutsView: View {
     var body: some View {
@@ -11,14 +10,14 @@ struct EnhancementShortcutsView: View {
                         .font(.system(size: 13))
 
                     InfoTip(
-                        "Quickly enable or disable AI enhancement while recording. Available only when VoiceInk is running and the recorder is visible.",
+                        "Quickly enable or disable AI enhancement from anywhere while VoiceInk is running.",
                         learnMoreURL: "https://tryvoiceink.com/docs/enhancement-shortcuts"
                     )
                 }
 
                 Spacer()
 
-                KeyboardShortcuts.Recorder(for: .toggleEnhancement)
+                ShortcutRecorder(action: .toggleEnhancement)
                     .controlSize(.small)
             }
 
