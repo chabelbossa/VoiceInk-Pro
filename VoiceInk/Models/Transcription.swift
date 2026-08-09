@@ -12,11 +12,11 @@ enum TranscriptionStatus: String, Codable {
 final class Transcription {
     static let canceledTranscriptionText = "The transcription was canceled."
 
-    var id: UUID
-    var text: String
+    var id: UUID = UUID()
+    var text: String = ""
     var enhancedText: String?
-    var timestamp: Date
-    var duration: TimeInterval
+    var timestamp: Date = Date()
+    var duration: TimeInterval = 0
     var audioFileURL: String?
     var transcriptionModelName: String?
     var aiEnhancementModelName: String?
@@ -25,27 +25,31 @@ final class Transcription {
     var enhancementDuration: TimeInterval?
     var aiRequestSystemMessage: String?
     var aiRequestUserMessage: String?
-    var powerModeName: String?
-    var powerModeEmoji: String?
+    @Attribute(originalName: "powerModeName")
+    var modeName: String?
+    @Attribute(originalName: "powerModeEmoji")
+    var modeEmoji: String?
     var transcriptionStatus: String?
-    /// Masked API key used for AI enhancement (e.g. "sk-...ab12"). Nil if no key rotation.
+    /// Masked API key used by the enhancement request, when applicable.
     var aiKeyUsed: String?
 
-    init(text: String,
-         duration: TimeInterval,
-         enhancedText: String? = nil,
-         audioFileURL: String? = nil,
-         transcriptionModelName: String? = nil,
-         aiEnhancementModelName: String? = nil,
-         promptName: String? = nil,
-         transcriptionDuration: TimeInterval? = nil,
-         enhancementDuration: TimeInterval? = nil,
-         aiRequestSystemMessage: String? = nil,
-         aiRequestUserMessage: String? = nil,
-         powerModeName: String? = nil,
-         powerModeEmoji: String? = nil,
-         aiKeyUsed: String? = nil,
-         transcriptionStatus: TranscriptionStatus = .pending) {
+    init(
+        text: String,
+        duration: TimeInterval,
+        enhancedText: String? = nil,
+        audioFileURL: String? = nil,
+        transcriptionModelName: String? = nil,
+        aiEnhancementModelName: String? = nil,
+        promptName: String? = nil,
+        transcriptionDuration: TimeInterval? = nil,
+        enhancementDuration: TimeInterval? = nil,
+        aiRequestSystemMessage: String? = nil,
+        aiRequestUserMessage: String? = nil,
+        modeName: String? = nil,
+        modeEmoji: String? = nil,
+        aiKeyUsed: String? = nil,
+        transcriptionStatus: TranscriptionStatus = .pending
+    ) {
         self.id = UUID()
         self.text = text
         self.enhancedText = enhancedText
@@ -59,8 +63,8 @@ final class Transcription {
         self.enhancementDuration = enhancementDuration
         self.aiRequestSystemMessage = aiRequestSystemMessage
         self.aiRequestUserMessage = aiRequestUserMessage
-        self.powerModeName = powerModeName
-        self.powerModeEmoji = powerModeEmoji
+        self.modeName = modeName
+        self.modeEmoji = modeEmoji
         self.aiKeyUsed = aiKeyUsed
         self.transcriptionStatus = transcriptionStatus.rawValue
     }

@@ -75,7 +75,10 @@ actor MultiKeyManager {
         var migrated = false
         
         // 1. Migrate primary keys from APIKeyManager for all providers
-        for provider in ["gemini", "groq", "openai", "anthropic", "cerebras", "mistral", "openrouter", "elevenlabs", "deepgram", "soniox"] {
+        for provider in [
+            "gemini", "groq", "openai", "anthropic", "cerebras", "nvidia", "mistral",
+            "openrouter", "elevenlabs", "deepgram", "soniox", "speechmatics", "assemblyai",
+        ] {
             if let primaryKey = APIKeyManager.shared.getAPIKey(forProvider: provider), !primaryKey.isEmpty {
                 let existingValues = getAllKeyValues(forProvider: provider)
                 if !existingValues.contains(primaryKey) {
