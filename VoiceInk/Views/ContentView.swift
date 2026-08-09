@@ -4,6 +4,7 @@ import SwiftUI
 enum ViewType: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case modes = "Modes"
+    case enhancement = "Enhancement"
     case models = "AI Models"
     case transcribeAudio = "Transcribe Audio"
     case history = "History"
@@ -107,6 +108,8 @@ struct ContentView: View {
             DictionarySettingsView()
         case .modes:
             ModeView()
+        case .enhancement:
+            EnhancementSettingsView()
         case .settings:
             SettingsView()
         case .license:
