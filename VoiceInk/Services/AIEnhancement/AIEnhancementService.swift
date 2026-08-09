@@ -4,6 +4,32 @@ import LLMkit
 import SwiftData
 import os
 
+struct ModelComparisonCandidate: Identifiable, Hashable {
+    let provider: AIProvider
+    let model: String
+
+    var id: String { "\(provider.rawValue)::\(model)" }
+    var displayName: String { "\(provider.rawValue) - \(model)" }
+}
+
+struct ModelComparisonResult: Identifiable, Equatable {
+    let id = UUID()
+    let provider: AIProvider
+    let model: String
+    let output: String?
+    let duration: TimeInterval
+    let keyUsed: String?
+    let promptName: String?
+    let systemMessage: String?
+    let userMessage: String?
+    let errorMessage: String?
+
+    var isSuccess: Bool {
+        guard let output else { return false }
+        return !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && errorMessage == nil
+    }
+}
+
 @MainActor
 class AIEnhancementService: ObservableObject {
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "AIEnhancementService")
@@ -31,6 +57,7 @@ class AIEnhancementService: ObservableObject {
     }
     private let rateLimitInterval: TimeInterval = 1.0
     private var lastRequestTime: Date?
+    private var lastCodexRequestIdentity: String?
     private let modelContext: ModelContext
 
     @Published var lastCapturedClipboard: String?
@@ -81,6 +108,10 @@ class AIEnhancementService: ObservableObject {
             return true
         }
 
+        if provider.usesOAuthAccounts {
+            return aiService.hasAnyCodexAccount
+        }
+
         if provider == .custom {
             guard let modelName = configuration.modelName else { return false }
             return CustomAIProviderManager.shared.requestConfiguration(forModel: modelName) != nil
@@ -88,6 +119,49 @@ class AIEnhancementService: ObservableObject {
 
         return APIKeyManager.shared.hasAPIKey(forProvider: provider.rawValue)
             || aiService.hasAnyMultiKey(for: provider)
+    }
+
+    private var comparisonProviderOrder: [AIProvider] {
+        [.gemini, .codex, .openAI, .anthropic, .nvidia, .groq, .cerebras, .mistral, .openRouter, .custom, .ollama, .localCLI]
+    }
+
+    func availableModelComparisonCandidates() async -> [ModelComparisonCandidate] {
+        var candidates: [ModelComparisonCandidate] = []
+        var seen = Set<String>()
+
+        for provider in comparisonProviderOrder where provider.supportsEnhancement {
+            guard await isProviderConfiguredForComparison(provider) else { continue }
+            for model in comparisonModels(for: provider) {
+                let candidate = ModelComparisonCandidate(provider: provider, model: model)
+                guard seen.insert(candidate.id).inserted else { continue }
+                candidates.append(candidate)
+            }
+        }
+        return candidates
+    }
+
+    private func isProviderConfiguredForComparison(_ provider: AIProvider) async -> Bool {
+        guard provider.supportsEnhancement else { return false }
+        if provider.usesOAuthAccounts {
+            return await CodexAccountManager.shared.accountCount() > 0
+        }
+        if provider == .custom {
+            return CustomAIProviderManager.shared.hasConfiguredModels
+        }
+        if provider == .ollama || provider == .localCLI {
+            return aiService.connectedProviders.contains(provider)
+        }
+        if await MultiKeyManager.shared.hasAnyKey(forProvider: provider.rawValue) {
+            return true
+        }
+        return APIKeyManager.shared.hasAPIKey(forProvider: provider.rawValue)
+    }
+
+    private func comparisonModels(for provider: AIProvider) -> [String] {
+        let models = aiService.availableModels(for: provider)
+        if !models.isEmpty { return models }
+        let model = aiService.selectedModel(for: provider)
+        return model.isEmpty ? [] : [model]
     }
 
     private func waitForRateLimit() async throws {
@@ -209,6 +283,14 @@ class AIEnhancementService: ObservableObject {
         await MainActor.run {
             self.lastSystemMessageSent = systemMessage
             self.lastUserMessageSent = formattedText
+        }
+
+        if provider.usesOAuthAccounts {
+            return try await makeCodexRequest(
+                model: modelName,
+                systemPrompt: systemMessage,
+                userPrompt: formattedText
+            ).text
         }
 
         if provider == .ollama {
@@ -344,6 +426,53 @@ class AIEnhancementService: ObservableObject {
         return key
     }
 
+    private func makeCodexRequest(
+        model: String,
+        systemPrompt: String,
+        userPrompt: String
+    ) async throws -> (text: String, requestIdentity: String) {
+        try await waitForRateLimit()
+        do {
+            let reasoningEffort = CodexModelCatalog.effectiveReasoningEffort(
+                aiService.codexReasoningEffort,
+                for: model
+            )
+            let result = try await CodexResponsesClient.shared.generateResponse(
+                model: model,
+                systemPrompt: systemPrompt,
+                userPrompt: userPrompt,
+                reasoningEffort: reasoningEffort,
+                timeout: baseTimeout
+            )
+            let text = AIEnhancementOutputFilter.filter(
+                result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            let requestIdentity = "Codex: \(result.accountAlias) - \(result.serviceTier.displayName)"
+            lastCodexRequestIdentity = requestIdentity
+            return (text, requestIdentity)
+        } catch let error as CodexClientError {
+            throw mapCodexClientError(error)
+        } catch {
+            throw EnhancementError.customError(error.localizedDescription)
+        }
+    }
+
+    private func mapCodexClientError(_ error: CodexClientError) -> EnhancementError {
+        switch error {
+        case .notConfigured, .noEligibleAccounts:
+            return .notConfigured
+        case .allAccountsExhausted(let message), .missingScope(let message):
+            return .customError(message)
+        case .apiError(let statusCode, let message):
+            if statusCode == 429 { return .rateLimitExceeded }
+            if statusCode == -1 { return .networkError }
+            if (500...599).contains(statusCode) { return .serverError }
+            return .customError("Codex API error \(statusCode): \(message)")
+        case .invalidResponse:
+            return .enhancementFailed
+        }
+    }
+
     private func mapLLMKitError(_ error: LLMKitError) -> EnhancementError {
         switch error {
         case .missingAPIKey:
@@ -375,6 +504,7 @@ class AIEnhancementService: ObservableObject {
         initialDelay: TimeInterval = 1.0
     ) async throws -> (text: String, apiKey: String?) {
         let provider = configuration.provider
+        lastCodexRequestIdentity = nil
         let supportsKeyRotation = provider?.requiresAPIKey == true && provider != .custom
         let providerName = provider?.rawValue ?? ""
         let multiKeyCount = supportsKeyRotation
@@ -405,7 +535,7 @@ class AIEnhancementService: ObservableObject {
                     contextSnapshot: contextSnapshot,
                     apiKeyOverride: requestKey
                 )
-                return (result, requestKey)
+                return (result, provider?.usesOAuthAccounts == true ? lastCodexRequestIdentity : requestKey)
             } catch let error as EnhancementError {
                 switch error {
                 case .rateLimitExceeded:
@@ -495,8 +625,74 @@ class AIEnhancementService: ObservableObject {
         }
     }
 
+    func compareEnhancementModels(
+        text: String,
+        candidates: [ModelComparisonCandidate]
+    ) async -> [ModelComparisonResult] {
+        let uniqueCandidates = candidates.reduce(into: [ModelComparisonCandidate]()) { result, candidate in
+            guard !candidate.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                !result.contains(candidate)
+            else { return }
+            result.append(candidate)
+        }
+        guard !uniqueCandidates.isEmpty else { return [] }
+
+        let baseConfiguration = ModeRuntimeResolver.currentEnhancementConfiguration(
+            enhancementService: self,
+            aiService: aiService
+        )
+        guard baseConfiguration.prompt != nil else { return [] }
+
+        var results: [ModelComparisonResult] = []
+        for candidate in uniqueCandidates {
+            let startedAt = Date()
+            let configuration = baseConfiguration.replacingProvider(
+                candidate.provider,
+                modelName: candidate.model
+            )
+            do {
+                let response = try await makeRequestWithRetry(
+                    text: text,
+                    configuration: configuration,
+                    contextSnapshot: nil,
+                    maxRetries: 1,
+                    initialDelay: 0.5
+                )
+                results.append(
+                    ModelComparisonResult(
+                        provider: candidate.provider,
+                        model: candidate.model,
+                        output: response.text,
+                        duration: Date().timeIntervalSince(startedAt),
+                        keyUsed: Self.maskKey(response.apiKey),
+                        promptName: configuration.prompt?.title,
+                        systemMessage: lastSystemMessageSent,
+                        userMessage: lastUserMessageSent,
+                        errorMessage: nil
+                    )
+                )
+            } catch {
+                results.append(
+                    ModelComparisonResult(
+                        provider: candidate.provider,
+                        model: candidate.model,
+                        output: nil,
+                        duration: Date().timeIntervalSince(startedAt),
+                        keyUsed: nil,
+                        promptName: configuration.prompt?.title,
+                        systemMessage: lastSystemMessageSent,
+                        userMessage: lastUserMessageSent,
+                        errorMessage: error.localizedDescription
+                    )
+                )
+            }
+        }
+        return results
+    }
+
     static func maskKey(_ key: String?) -> String? {
         guard let key, key.count > 8 else { return key }
+        if key.hasPrefix("Codex: ") { return key }
         return "\(key.prefix(4))...\(key.suffix(4))"
     }
 

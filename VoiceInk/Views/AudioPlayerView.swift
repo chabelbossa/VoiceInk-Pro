@@ -357,6 +357,7 @@ struct AudioPlayerView: View {
     @State private var operationFeedback: OperationFeedback?
     @State private var showModePopover = false
     @State private var showPromptPopover = false
+    @State private var showModelComparison = false
     @EnvironmentObject private var engine: VoiceInkEngine
     @EnvironmentObject private var enhancementService: AIEnhancementService
     @ObservedObject private var modeManager = ModeManager.shared
@@ -459,6 +460,10 @@ struct AudioPlayerView: View {
                         .popover(isPresented: $showPromptPopover, arrowEdge: .bottom) {
                             promptSelectionPopover
                         }
+
+                        CircleIconButton(icon: "slider.horizontal.3", action: { showModelComparison = true })
+                            .disabled(isOperationInProgress)
+                            .help("Compare enhancement models")
                     }
 
                     if let onInfoTap {
@@ -483,6 +488,12 @@ struct AudioPlayerView: View {
         }
         .onDisappear {
             playerManager.cleanup()
+        }
+        .sheet(isPresented: $showModelComparison) {
+            if let transcription {
+                ModelComparisonView(transcription: transcription)
+                    .environmentObject(enhancementService)
+            }
         }
     }
 
@@ -611,6 +622,7 @@ struct AudioPlayerView: View {
                     transcription.enhancementDuration = enhancementDuration
                     transcription.aiRequestSystemMessage = enhancementService.lastSystemMessageSent
                     transcription.aiRequestUserMessage = enhancementService.lastUserMessageSent
+                    transcription.aiKeyUsed = enhancementService.lastAPIKeyUsed
                     try? modelContext.save()
 
                     isReEnhancing = false

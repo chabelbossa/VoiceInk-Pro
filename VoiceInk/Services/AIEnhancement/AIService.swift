@@ -7,6 +7,7 @@ enum AIProvider: String, CaseIterable {
     case gemini = "Gemini"
     case anthropic = "Anthropic"
     case openAI = "OpenAI"
+    case codex = "Codex"
     case nvidia = "NVIDIA"
     case openRouter = "OpenRouter"
     case mistral = "Mistral"
@@ -31,6 +32,8 @@ enum AIProvider: String, CaseIterable {
             return "https://api.anthropic.com/v1/messages"
         case .openAI:
             return "https://api.openai.com/v1/chat/completions"
+        case .codex:
+            return "https://chatgpt.com/backend-api/codex/responses"
         case .nvidia:
             return "https://integrate.api.nvidia.com/v1/chat/completions"
         case .openRouter:
@@ -68,6 +71,8 @@ enum AIProvider: String, CaseIterable {
             return "claude-sonnet-5"
         case .openAI:
             return "gpt-5.5"
+        case .codex:
+            return CodexModelCatalog.defaultModelID
         case .nvidia:
             return "nvidia/llama-3.3-nemotron-super-49b-v1"
         case .mistral:
@@ -130,6 +135,8 @@ enum AIProvider: String, CaseIterable {
                 "gpt-4.1-mini",
                 "gpt-4.1-nano",
             ]
+        case .codex:
+            return CodexModelCatalog.modelIDs
         case .nvidia:
             return [
                 "nvidia/llama-3.3-nemotron-super-49b-v1",
@@ -188,11 +195,15 @@ enum AIProvider: String, CaseIterable {
 
     var requiresAPIKey: Bool {
         switch self {
-        case .ollama, .localCLI:
+        case .ollama, .localCLI, .codex:
             return false
         default:
             return true
         }
+    }
+
+    var usesOAuthAccounts: Bool {
+        self == .codex
     }
 
     var supportsEnhancement: Bool {
@@ -214,6 +225,8 @@ class AIService: ObservableObject {
     @Published var apiKey: String = ""
     @Published var isAPIKeyValid: Bool = false
     @Published private(set) var multiKeyProviders: Set<AIProvider> = []
+    @Published var hasAnyCodexAccount = CodexAccountManager.storedAccountCount() > 0
+    @Published var codexAccountCount = CodexAccountManager.storedAccountCount()
 
     var hasAnyMultiKey: Bool {
         multiKeyProviders.contains(selectedProvider)
@@ -231,7 +244,11 @@ class AIService: ObservableObject {
     @Published var selectedProvider: AIProvider {
         didSet {
             userDefaults.set(selectedProvider.rawValue, forKey: "selectedAIProvider")
-            if selectedProvider.requiresAPIKey {
+            if selectedProvider.usesOAuthAccounts {
+                apiKey = ""
+                isAPIKeyValid = hasAnyCodexAccount
+                refreshCodexAccountStatus()
+            } else if selectedProvider.requiresAPIKey {
                 refreshMultiKeyStatus(for: selectedProvider)
                 if let savedKey = APIKeyManager.shared.getAPIKey(forProvider: selectedProvider.rawValue) {
                     self.apiKey = savedKey
@@ -254,7 +271,9 @@ class AIService: ObservableObject {
     }
 
     @Published private var selectedModels: [AIProvider: String] = [:]
+    @Published private(set) var codexReasoningEffort: CodexReasoningEffort = .low
     private let userDefaults = UserDefaults.standard
+    private let codexReasoningEffortDefaultsKey = "CodexReasoningEffort"
     private lazy var ollamaService = OllamaService()
     private lazy var localCLIService = LocalCLIService()
     private var apiKeyChangeObserver: NSObjectProtocol?
@@ -274,6 +293,8 @@ class AIService: ObservableObject {
                 return ollamaService.isConnected
             } else if provider == .localCLI {
                 return localCLIService.isConfigured
+            } else if provider == .codex {
+                return CodexAccountManager.storedAccountCount() > 0
             } else if provider.requiresAPIKey {
                 return APIKeyManager.shared.hasAPIKey(forProvider: provider.rawValue)
                     || hasAnyMultiKey(for: provider)
@@ -301,6 +322,15 @@ class AIService: ObservableObject {
 
     var availableModels: [String] {
         availableModels(for: selectedProvider)
+    }
+
+    var currentCodexModelOption: CodexModelOption? {
+        guard selectedProvider == .codex else { return nil }
+        return CodexModelCatalog.option(for: currentModel)
+    }
+
+    var availableCodexReasoningEfforts: [CodexReasoningEffort] {
+        currentCodexModelOption?.supportedReasoningEfforts ?? [.low]
     }
 
     var localCLICommandTemplate: String {
@@ -339,7 +369,9 @@ class AIService: ObservableObject {
             self.selectedProvider = .gemini
         }
 
-        if selectedProvider.requiresAPIKey {
+        if selectedProvider.usesOAuthAccounts {
+            refreshCodexAccountStatus()
+        } else if selectedProvider.requiresAPIKey {
             if let savedKey = APIKeyManager.shared.getAPIKey(forProvider: selectedProvider.rawValue) {
                 self.apiKey = savedKey
                 self.isAPIKeyValid = true
@@ -349,6 +381,8 @@ class AIService: ObservableObject {
         }
 
         loadSavedModelSelections()
+        migrateCodexModelSelectionIfNeeded()
+        loadCodexReasoningEffort()
         loadSavedOpenRouterModels()
         refreshMultiKeyStatus()
 
@@ -380,7 +414,9 @@ class AIService: ObservableObject {
             selectedModels[selectedProvider] = savedModel
         }
 
-        if selectedProvider.requiresAPIKey {
+        if selectedProvider.usesOAuthAccounts {
+            refreshCodexAccountStatus()
+        } else if selectedProvider.requiresAPIKey {
             refreshMultiKeyStatus(for: selectedProvider)
             if let savedKey = APIKeyManager.shared.getAPIKey(forProvider: selectedProvider.rawValue) {
                 apiKey = savedKey
@@ -421,6 +457,18 @@ class AIService: ObservableObject {
         }
     }
 
+    func refreshCodexAccountStatus() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let count = await CodexAccountManager.shared.accountCount()
+            codexAccountCount = count
+            hasAnyCodexAccount = count > 0
+            if selectedProvider == .codex {
+                isAPIKeyValid = count > 0
+            }
+        }
+    }
+
     private func loadSavedModelSelections() {
         for provider in AIProvider.allCases {
             let key = "\(provider.rawValue)SelectedModel"
@@ -428,6 +476,24 @@ class AIService: ObservableObject {
                 selectedModels[provider] = savedModel
             }
         }
+    }
+
+    private func migrateCodexModelSelectionIfNeeded() {
+        let key = "\(AIProvider.codex.rawValue)SelectedModel"
+        guard let savedModel = selectedModels[.codex],
+            !CodexModelCatalog.modelIDs.contains(savedModel)
+        else { return }
+
+        selectedModels[.codex] = CodexModelCatalog.defaultModelID
+        userDefaults.set(CodexModelCatalog.defaultModelID, forKey: key)
+    }
+
+    private func loadCodexReasoningEffort() {
+        let savedEffort = userDefaults.string(forKey: codexReasoningEffortDefaultsKey)
+            .flatMap(CodexReasoningEffort.init(rawValue:)) ?? .low
+        let modelID = selectedModels[.codex] ?? CodexModelCatalog.defaultModelID
+        codexReasoningEffort = CodexModelCatalog.effectiveReasoningEffort(savedEffort, for: modelID)
+        userDefaults.set(codexReasoningEffort.rawValue, forKey: codexReasoningEffortDefaultsKey)
     }
 
     private func loadSavedOpenRouterModels() {
@@ -455,6 +521,14 @@ class AIService: ObservableObject {
         let key = "\(provider.rawValue)SelectedModel"
         userDefaults.set(model, forKey: key)
 
+        if provider == .codex,
+            let option = CodexModelCatalog.option(for: model),
+            !option.supportedReasoningEfforts.contains(codexReasoningEffort)
+        {
+            codexReasoningEffort = option.defaultReasoningEffort
+            userDefaults.set(codexReasoningEffort.rawValue, forKey: codexReasoningEffortDefaultsKey)
+        }
+
         if provider == .ollama {
             updateSelectedOllamaModel(model)
         } else if provider == .custom {
@@ -465,7 +539,24 @@ class AIService: ObservableObject {
         NotificationCenter.default.post(name: .AppSettingsDidChange, object: nil)
     }
 
+    func selectCodexReasoningEffort(_ effort: CodexReasoningEffort) {
+        guard selectedProvider == .codex, availableCodexReasoningEfforts.contains(effort) else { return }
+        codexReasoningEffort = effort
+        userDefaults.set(effort.rawValue, forKey: codexReasoningEffortDefaultsKey)
+        NotificationCenter.default.post(name: .AppSettingsDidChange, object: nil)
+    }
+
+    func displayName(for model: String) -> String {
+        CodexModelCatalog.option(for: model)?.displayName ?? model
+    }
+
     func saveAPIKey(_ key: String, completion: @escaping (Bool, String?) -> Void) {
+        if selectedProvider.usesOAuthAccounts {
+            refreshCodexAccountStatus()
+            completion(CodexAccountManager.storedAccountCount() > 0, nil)
+            return
+        }
+
         guard selectedProvider.requiresAPIKey else {
             completion(true, nil)
             return
@@ -488,6 +579,12 @@ class AIService: ObservableObject {
     }
 
     func verifyAPIKey(_ key: String, completion: @escaping (Bool, String?) -> Void) {
+        if selectedProvider.usesOAuthAccounts {
+            refreshCodexAccountStatus()
+            completion(CodexAccountManager.storedAccountCount() > 0, nil)
+            return
+        }
+
         guard selectedProvider.requiresAPIKey else {
             completion(true, nil)
             return

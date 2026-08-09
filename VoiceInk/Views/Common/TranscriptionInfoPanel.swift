@@ -63,6 +63,26 @@ struct TranscriptionInfoPanel: View {
                 }
             }
 
+            if let codexUsage {
+                metadataRow(
+                    icon: "person.crop.circle.badge.checkmark",
+                    label: "Codex Account",
+                    value: codexUsage.account
+                )
+
+                metadataRow(
+                    icon: "speedometer",
+                    label: "Codex Mode",
+                    value: codexUsage.mode
+                )
+            } else if let aiKeyUsed = trimmedAIKeyUsed {
+                metadataRow(
+                    icon: "key.fill",
+                    label: "AI Key Used",
+                    value: aiKeyUsed
+                )
+            }
+
             if let promptName = transcription.promptName {
                 metadataRow(
                     icon: "text.bubble.fill",
@@ -146,6 +166,25 @@ struct TranscriptionInfoPanel: View {
             parts.append("User Message:\n\(user)")
         }
         return parts.joined(separator: "\n\n")
+    }
+
+    private var trimmedAIKeyUsed: String? {
+        guard let value = transcription.aiKeyUsed?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !value.isEmpty
+        else { return nil }
+        return value
+    }
+
+    private var codexUsage: (account: String, mode: String)? {
+        guard let value = trimmedAIKeyUsed, value.hasPrefix("Codex: ") else { return nil }
+
+        let raw = String(value.dropFirst("Codex: ".count))
+        let parts = raw.components(separatedBy: " - ")
+        let account = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
+        let mode = parts.dropFirst().joined(separator: " - ").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !account.isEmpty else { return nil }
+        return (account, mode.isEmpty ? "Unknown" : mode)
     }
 
     private func requestMessageBlock(title: LocalizedStringKey, message: String) -> some View {

@@ -48,6 +48,19 @@ struct EnhancementRuntimeConfiguration {
             useScreenCaptureContext: useScreenCaptureContext
         )
     }
+
+    func replacingProvider(_ provider: AIProvider, modelName: String) -> EnhancementRuntimeConfiguration {
+        EnhancementRuntimeConfiguration(
+            mode: mode,
+            isEnabled: true,
+            prompt: prompt,
+            provider: provider,
+            modelName: modelName,
+            useClipboardContext: useClipboardContext,
+            useSelectedTextContext: useSelectedTextContext,
+            useScreenCaptureContext: useScreenCaptureContext
+        )
+    }
 }
 
 struct OutputRuntimeConfiguration {

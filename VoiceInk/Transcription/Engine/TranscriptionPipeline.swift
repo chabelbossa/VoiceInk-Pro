@@ -201,6 +201,7 @@ class TranscriptionPipeline {
                         transcription.enhancementDuration = enhancementDuration
                         transcription.aiRequestSystemMessage = enhancementService.lastSystemMessageSent
                         transcription.aiRequestUserMessage = enhancementService.lastUserMessageSent
+                        transcription.aiKeyUsed = enhancementService.lastAPIKeyUsed
                         finalText = enhancedText
                     } catch {
                         let errorDescription = EnhancementFailureFormatter.description(for: error)

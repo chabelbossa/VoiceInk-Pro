@@ -170,13 +170,14 @@ struct NotchRecorderView<S: RecorderStateProvider & ObservableObject>: View {
                 value: displayState
             )
 
-            HStack(spacing: 0) {
+            HStack(spacing: 10) {
                 Spacer(minLength: 0)
                 RecorderStatusDisplay(
                     currentState: stateProvider.recordingState,
                     audioMeter: recorder.audioMeter,
                     menuBarHeight: notchHeight
                 )
+                RecorderEnhancementButton(buttonSize: 20)
             }
             .padding(.trailing, sideEdgePadding)
             .frame(width: sideExpansion)

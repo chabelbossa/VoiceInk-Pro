@@ -185,6 +185,31 @@ struct APIKeyManagementView: View {
                         }
                     }
 
+                } else if aiService.selectedProvider == .codex {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker(
+                            "Reasoning",
+                            selection: Binding(
+                                get: { aiService.codexReasoningEffort },
+                                set: { aiService.selectCodexReasoningEffort($0) }
+                            )
+                        ) {
+                            ForEach(aiService.availableCodexReasoningEfforts) { effort in
+                                Text(effort.displayName).tag(effort)
+                            }
+                        }
+
+                        HStack {
+                            Text(aiService.hasAnyCodexAccount
+                                ? "Codex OAuth is ready."
+                                : "Connect a Codex account to enable enhancement.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Spacer()
+                            CodexAccountsButton()
+                        }
+                    }
                 } else if aiService.selectedProvider == .localCLI {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
@@ -262,6 +287,8 @@ struct APIKeyManagementView: View {
                             Button("Remove", role: .destructive) {
                                 aiService.clearAPIKey()
                             }
+
+                            MultiKeyButton(provider: aiService.selectedProvider.rawValue)
                         }
                     } else {
                         SecureField("API Key", text: $apiKey)
@@ -285,6 +312,8 @@ struct APIKeyManagementView: View {
                             }
 
                             Spacer()
+
+                            MultiKeyButton(provider: aiService.selectedProvider.rawValue)
 
                             Button(action: {
                                 isVerifying = true

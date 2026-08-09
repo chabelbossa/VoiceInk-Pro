@@ -6,17 +6,33 @@ struct RecorderToggleButton: View {
     let isEnabled: Bool
     let icon: String
     let disabled: Bool
+    let inactiveOpacity: Double
+    let disabledOpacity: Double
     let action: () -> Void
 
-    init(isEnabled: Bool, icon: String, disabled: Bool = false, action: @escaping () -> Void) {
+    init(
+        isEnabled: Bool,
+        icon: String,
+        disabled: Bool = false,
+        inactiveOpacity: Double = 0.6,
+        disabledOpacity: Double = 0.3,
+        action: @escaping () -> Void
+    ) {
         self.isEnabled = isEnabled
         self.icon = icon
         self.disabled = disabled
+        self.inactiveOpacity = inactiveOpacity
+        self.disabledOpacity = disabledOpacity
         self.action = action
     }
 
     private var isEmoji: Bool {
         !icon.contains(".") && !icon.contains("-") && icon.unicodeScalars.contains { !$0.isASCII }
+    }
+
+    private var visualOpacity: Double {
+        if isEnabled { return 1 }
+        return disabled ? disabledOpacity : inactiveOpacity
     }
 
     var body: some View {
@@ -28,10 +44,42 @@ struct RecorderToggleButton: View {
                     Image(systemName: icon).font(.system(size: 13))
                 }
             }
-            .foregroundColor(disabled ? .white.opacity(0.3) : (isEnabled ? .white : .white.opacity(0.6)))
+            .foregroundColor(.white)
+            .opacity(visualOpacity)
         }
         .buttonStyle(PlainButtonStyle())
         .disabled(disabled)
+    }
+}
+
+// MARK: - AI Enhancement Button
+
+struct RecorderEnhancementButton: View {
+    @ObservedObject private var modeManager = ModeManager.shared
+    @State private var isPopoverPresented = false
+    let buttonSize: CGFloat
+
+    init(buttonSize: CGFloat = 22) {
+        self.buttonSize = buttonSize
+    }
+
+    private var isEnabled: Bool {
+        modeManager.currentEffectiveConfiguration?.isAIEnhancementEnabled == true
+    }
+
+    var body: some View {
+        RecorderToggleButton(
+            isEnabled: isEnabled,
+            icon: "sparkles",
+            inactiveOpacity: 0.18
+        ) {
+            isPopoverPresented.toggle()
+        }
+        .frame(width: buttonSize, height: buttonSize)
+        .help(isEnabled ? "AI enhancement enabled" : "AI enhancement disabled")
+        .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
+            EnhancementPromptPopover()
+        }
     }
 }
 

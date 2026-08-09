@@ -230,7 +230,8 @@ class AudioTranscriptionManager: ObservableObject {
                         aiRequestSystemMessage: enhancementService.lastSystemMessageSent,
                         aiRequestUserMessage: enhancementService.lastUserMessageSent,
                         modeName: modeMetadata.name,
-                        modeEmoji: modeMetadata.emoji
+                        modeEmoji: modeMetadata.emoji,
+                        aiKeyUsed: enhancementService.lastAPIKeyUsed
                     )
                 } catch {
                     let failureMessage = EnhancementFailureFormatter.message(for: error)

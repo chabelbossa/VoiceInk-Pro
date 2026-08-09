@@ -52,6 +52,11 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
             }
             .padding(.leading, 10)
 
+            RecorderModeButton(
+                buttonSize: 22,
+                padding: EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 0)
+            )
+
             Spacer(minLength: 0)
 
             RecorderStatusDisplay(
@@ -61,10 +66,7 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
 
             Spacer(minLength: 0)
 
-            RecorderModeButton(
-                buttonSize: 22,
-                padding: EdgeInsets()
-            )
+            RecorderEnhancementButton(buttonSize: 22)
             .padding(.trailing, 12)
         }
         .frame(height: controlBarHeight)

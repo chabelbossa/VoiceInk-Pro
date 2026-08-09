@@ -500,14 +500,14 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 205;
+				CURRENT_PROJECT_VERSION = 2101;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"VoiceInk/Preview Content\"";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = VoiceInk/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "VoiceInk Pro";
+				INFOPLIST_KEY_CFBundleDisplayName = "VoiceInk Pro 2.1 Maintenance";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -515,9 +515,10 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.4;
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 2.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.prakashjoshipax.VoiceInk;
-				PRODUCT_NAME = "VoiceInk Pro";
+				PRODUCT_MODULE_NAME = VoiceInk_Pro;
+				PRODUCT_NAME = "VoiceInk Pro 2.1 Maintenance";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG ENABLE_NATIVE_SPEECH_ANALYZER $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -534,14 +535,14 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 205;
+				CURRENT_PROJECT_VERSION = 2101;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"VoiceInk/Preview Content\"";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = VoiceInk/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "VoiceInk Pro";
+				INFOPLIST_KEY_CFBundleDisplayName = "VoiceInk Pro 2.1 Maintenance";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -549,9 +550,10 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.4;
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 2.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.prakashjoshipax.VoiceInk;
-				PRODUCT_NAME = "VoiceInk Pro";
+				PRODUCT_MODULE_NAME = VoiceInk_Pro;
+				PRODUCT_NAME = "VoiceInk Pro 2.1 Maintenance";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "ENABLE_NATIVE_SPEECH_ANALYZER $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -572,7 +574,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VoiceInk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VoiceInk";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VoiceInk Pro 2.1 Maintenance.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VoiceInk Pro 2.1 Maintenance";
 			};
 			name = Debug;
 		};
@@ -590,7 +592,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VoiceInk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VoiceInk";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VoiceInk Pro 2.1 Maintenance.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VoiceInk Pro 2.1 Maintenance";
 			};
 			name = Release;
 		};
