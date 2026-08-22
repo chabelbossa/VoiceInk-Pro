@@ -70,6 +70,7 @@ private extension ViewType {
         .dashboard,
         .modes,
         .enhancement,
+        .permissions,
         .transcribeAudio,
         .history,
         .dictionary,
@@ -97,6 +98,7 @@ private extension ViewType {
         case .models: return "cpu"
         case .modes: return "sparkles.square.fill.on.square"
         case .enhancement: return "wand.and.stars"
+        case .permissions: return "lock.shield.fill"
         case .audio: return "mic.fill"
         case .dictionary: return "text.book.closed.fill"
         case .settings: return "gearshape.fill"
@@ -112,6 +114,8 @@ private extension ViewType {
             return .init(background: AppTheme.Sidebar.modes)
         case .enhancement:
             return .init(background: AppTheme.Data.enhancement)
+        case .permissions:
+            return .init(background: AppTheme.Sidebar.license)
         case .models:
             return .init(background: AppTheme.Sidebar.models)
         case .audio:

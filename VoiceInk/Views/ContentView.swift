@@ -5,6 +5,7 @@ enum ViewType: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case modes = "Modes"
     case enhancement = "Enhancement"
+    case permissions = "Permissions"
     case models = "AI Models"
     case transcribeAudio = "Transcribe Audio"
     case history = "History"
@@ -110,6 +111,8 @@ struct ContentView: View {
             ModeView()
         case .enhancement:
             EnhancementSettingsView()
+        case .permissions:
+            PermissionsView()
         case .settings:
             SettingsView()
         case .license:
