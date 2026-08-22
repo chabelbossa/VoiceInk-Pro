@@ -61,4 +61,13 @@ class MiniRecorderPanel: NSPanel {
         orderFrontRegardless()
     }
 
+    func moveBy(dx: CGFloat, dy: CGFloat) {
+        setFrameOrigin(
+            NSPoint(
+                x: frame.origin.x + dx,
+                y: frame.origin.y - dy
+            )
+        )
+    }
+
 }

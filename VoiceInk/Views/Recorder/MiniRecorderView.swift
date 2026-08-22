@@ -8,6 +8,33 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
     let onCloseTapped: () -> Void
     let onAssistantFollowUp: (String) -> Void
     @AppStorage(RecorderDisplaySettingsKeys.showLiveTranscript) private var showLiveTranscript = true
+    @State private var panelOriginAtDragStart: NSPoint?
+
+    // MARK: - Window Dragging
+
+    private var windowDragGesture: some Gesture {
+        DragGesture(minimumDistance: 6)
+            .onChanged { value in
+                guard
+                    let panel = NSApp.windows.first(where: { $0 is MiniRecorderPanel }) as? MiniRecorderPanel
+                else { return }
+
+                if panelOriginAtDragStart == nil {
+                    panelOriginAtDragStart = panel.frame.origin
+                }
+
+                guard let origin = panelOriginAtDragStart else { return }
+                panel.setFrameOrigin(
+                    NSPoint(
+                        x: origin.x + value.translation.width,
+                        y: origin.y - value.translation.height
+                    )
+                )
+            }
+            .onEnded { _ in
+                panelOriginAtDragStart = nil
+            }
+    }
 
     // MARK: - Layout Constants
 
@@ -70,6 +97,8 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
             .padding(.trailing, 12)
         }
         .frame(height: controlBarHeight)
+        .contentShape(Rectangle())
+        .simultaneousGesture(windowDragGesture)
     }
 
     private var transcriptSection: some View {
