@@ -9,6 +9,8 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
     let onAssistantFollowUp: (String) -> Void
     @AppStorage(RecorderDisplaySettingsKeys.showLiveTranscript) private var showLiveTranscript = true
     @State private var panelOriginAtDragStart: NSPoint?
+    @State private var transcriptDragPreviousTranslation: CGSize?
+    @State private var transcriptDragTracking = false
 
     // MARK: - Window Dragging
 
@@ -33,6 +35,30 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
             }
             .onEnded { _ in
                 panelOriginAtDragStart = nil
+            }
+    }
+
+    private var transcriptDragGesture: some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                defer {
+                    transcriptDragPreviousTranslation = value.translation
+                    transcriptDragTracking = true
+                }
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                guard transcriptDragTracking, let previous = transcriptDragPreviousTranslation else { return }
+                guard
+                    let panel = NSApp.windows.first(where: { $0 is MiniRecorderPanel }) as? MiniRecorderPanel
+                else { return }
+
+                panel.moveBy(
+                    dx: value.translation.width - previous.width,
+                    dy: value.translation.height - previous.height
+                )
+            }
+            .onEnded { _ in
+                transcriptDragPreviousTranslation = nil
+                transcriptDragTracking = false
             }
     }
 
@@ -108,6 +134,8 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
                 Divider().background(Color.white.opacity(0.15))
             }
         }
+        .contentShape(Rectangle())
+        .simultaneousGesture(transcriptDragGesture)
     }
 
     var body: some View {
