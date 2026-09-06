@@ -1,5 +1,13 @@
 import SwiftUI
 
+private final class PillDragState {
+    weak var panel: MiniRecorderPanel?
+    var controlBarOrigin: NSPoint?
+    var transcriptPreviousTranslation: CGSize?
+    var transcriptTracking = false
+    var lastMoveTime: TimeInterval = 0
+}
+
 struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
     @ObservedObject var stateProvider: S
     @ObservedObject var recorder: Recorder
@@ -8,24 +16,39 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
     let onCloseTapped: () -> Void
     let onAssistantFollowUp: (String) -> Void
     @AppStorage(RecorderDisplaySettingsKeys.showLiveTranscript) private var showLiveTranscript = true
-    @State private var panelOriginAtDragStart: NSPoint?
-    @State private var transcriptDragPreviousTranslation: CGSize?
-    @State private var transcriptDragTracking = false
+    @State private var dragState = PillDragState()
+
+    private let dragMoveMinimumInterval: TimeInterval = 1.0 / 120.0
 
     // MARK: - Window Dragging
+
+    private func dragPanel() -> MiniRecorderPanel? {
+        if let panel = dragState.panel {
+            return panel
+        }
+        guard let panel = NSApp.windows.first(where: { $0 is MiniRecorderPanel }) as? MiniRecorderPanel
+        else {
+            return nil
+        }
+        dragState.panel = panel
+        return panel
+    }
+
+    private func shouldMovePanelNow() -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - dragState.lastMoveTime >= dragMoveMinimumInterval else { return false }
+        dragState.lastMoveTime = now
+        return true
+    }
 
     private var windowDragGesture: some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { value in
-                guard
-                    let panel = NSApp.windows.first(where: { $0 is MiniRecorderPanel }) as? MiniRecorderPanel
-                else { return }
-
-                if panelOriginAtDragStart == nil {
-                    panelOriginAtDragStart = panel.frame.origin
+                guard let panel = dragPanel() else { return }
+                if dragState.controlBarOrigin == nil {
+                    dragState.controlBarOrigin = panel.frame.origin
                 }
-
-                guard let origin = panelOriginAtDragStart else { return }
+                guard let origin = dragState.controlBarOrigin, shouldMovePanelNow() else { return }
                 panel.setFrameOrigin(
                     NSPoint(
                         x: origin.x + value.translation.width,
@@ -34,31 +57,31 @@ struct MiniRecorderView<S: RecorderStateProvider & ObservableObject>: View {
                 )
             }
             .onEnded { _ in
-                panelOriginAtDragStart = nil
+                dragState.controlBarOrigin = nil
+                dragState.panel = nil
             }
     }
 
     private var transcriptDragGesture: some Gesture {
         DragGesture(minimumDistance: 10)
             .onChanged { value in
-                defer {
-                    transcriptDragPreviousTranslation = value.translation
-                    transcriptDragTracking = true
-                }
+                let previous = dragState.transcriptPreviousTranslation
+                let tracking = dragState.transcriptTracking
+                dragState.transcriptPreviousTranslation = value.translation
+                dragState.transcriptTracking = true
                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                guard transcriptDragTracking, let previous = transcriptDragPreviousTranslation else { return }
-                guard
-                    let panel = NSApp.windows.first(where: { $0 is MiniRecorderPanel }) as? MiniRecorderPanel
-                else { return }
-
+                guard tracking, let previous, let panel = dragPanel(), shouldMovePanelNow() else {
+                    return
+                }
                 panel.moveBy(
                     dx: value.translation.width - previous.width,
                     dy: value.translation.height - previous.height
                 )
             }
             .onEnded { _ in
-                transcriptDragPreviousTranslation = nil
-                transcriptDragTracking = false
+                dragState.transcriptPreviousTranslation = nil
+                dragState.transcriptTracking = false
+                dragState.panel = nil
             }
     }
 
