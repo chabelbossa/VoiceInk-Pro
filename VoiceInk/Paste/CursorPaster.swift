@@ -20,13 +20,35 @@ class CursorPaster {
     private static let prePasteDelay: TimeInterval = 0.10
     private static let pasteShortcutEventDelay: TimeInterval = 0.01
     private static let minimumClipboardRestoreDelay: TimeInterval = 0.25
+    private static let modifierReleaseTimeout: TimeInterval = 1.0
+    private static let modifierReleasePollInterval: TimeInterval = 0.02
+    private static let minimumPasteInterval: TimeInterval = 0.5
+    private static let pasteRequestLock = NSLock()
+    private static var lastPasteRequest = Date.distantPast
 
     static func pasteAtCursor(_ text: String) {
+        pasteRequestLock.lock()
+        let now = Date()
+        let shouldDrop = now.timeIntervalSince(lastPasteRequest) < minimumPasteInterval
+        if !shouldDrop {
+            lastPasteRequest = now
+        }
+        pasteRequestLock.unlock()
+        guard !shouldDrop else { return }
+
         Task {
             let pasteTask = await MainActor.run {
                 startPasteAtCursor(text)
             }
-            _ = await pasteTask.value
+            let result = await pasteTask.value
+            if !result.didPostPasteCommand {
+                await MainActor.run {
+                    NotificationManager.shared.showNotification(
+                        title: String(localized: "Paste failed"),
+                        type: .error
+                    )
+                }
+            }
         }
     }
 
@@ -62,6 +84,7 @@ class CursorPaster {
         }
 
         await wait(prePasteDelay)
+        await waitForPhysicalModifiersRelease()
 
         let pasteResult = await postPasteCommand()
         if shouldRestoreClipboard {
@@ -217,6 +240,17 @@ class CursorPaster {
         guard seconds > 0 else { return }
         let nanoseconds = UInt64(seconds * 1_000_000_000)
         try? await Task.sleep(nanoseconds: nanoseconds)
+    }
+
+    private static func waitForPhysicalModifiersRelease() async {
+        let deadline = Date().addingTimeInterval(modifierReleaseTimeout)
+        while Date() < deadline {
+            let heldModifiers = NSEvent.modifierFlags.intersection([.command, .option, .control, .shift])
+            if heldModifiers.isEmpty {
+                return
+            }
+            await wait(modifierReleasePollInterval)
+        }
     }
 
     // MARK: - Auto Send Keys
